@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { asset } from './assets'
 import { useAuth } from './auth'
+import { GoogleSignInButton } from './GoogleSignInButton'
 import { googleClientId, isLikelyClientId, saveGoogleClientId } from './googleAuth'
 import { useStore } from './store'
 import { Button } from './ui'
@@ -12,7 +13,7 @@ export function AccountPage({
   onEnter: () => void
   onBack: () => void
 }) {
-  const { user, status, error, signIn, signOut } = useAuth()
+  const { user, status, signOut } = useAuth()
   const { flushCloud } = useStore()
   const [clientId, setClientId] = useState(googleClientId)
   const [draftId, setDraftId] = useState(clientId)
@@ -45,9 +46,9 @@ export function AccountPage({
 
       <main className="account-main">
         <p className="kicker">アカウント</p>
-        <h1>{user ? '同期しています' : '登録して、どの端末でも同じ内容に触れる'}</h1>
+        <h1>{user ? '同期しています' : 'Google で入って、どの端末でも同じ内容に触れる'}</h1>
         <p className="account-lead muted">
-          Google アカウントで入ると、書いた振り返りと整理がクラウドに残ります。スマホとパソコンで同じ棚を開けます。
+          Google のシングルサインオンです。同じアカウントなら、スマホとパソコンで同じ棚が開きます。書いた振り返りは Google ドライブに残します。
         </p>
 
         {user ? (
@@ -92,22 +93,12 @@ export function AccountPage({
               </form>
             ) : (
               <div className="account-actions">
-                <Button
-                  variant="primary"
-                  disabled={working}
-                  onClick={async () => {
-                    const ok = await signIn()
-                    if (ok) onEnter()
-                  }}
-                >
-                  {working ? '接続しています…' : 'Googleで登録・ログイン'}
-                </Button>
+                <GoogleSignInButton key={clientId} onSignedIn={onEnter} />
                 <Button variant="quiet" onClick={onEnter}>
                   この端末だけで続ける
                 </Button>
               </div>
             )}
-            {error ? <p className="account-error">{error}</p> : null}
           </div>
         )}
       </main>

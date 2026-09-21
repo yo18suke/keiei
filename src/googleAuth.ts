@@ -18,15 +18,50 @@ type TokenResponse = {
   error?: string
 }
 
+type CredentialResponse = {
+  credential?: string
+  select_by?: string
+}
+
+type GoogleId = {
+  initialize: (config: {
+    client_id: string
+    callback: (response: CredentialResponse) => void
+    auto_select?: boolean
+    cancel_on_tap_outside?: boolean
+    context?: 'signin' | 'signup' | 'use'
+    itp_support?: boolean
+    use_fedcm_for_prompt?: boolean
+  }) => void
+  renderButton: (
+    parent: HTMLElement,
+    config: {
+      type?: 'standard' | 'icon'
+      theme?: 'outline' | 'filled_blue' | 'filled_black'
+      size?: 'large' | 'medium' | 'small'
+      text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin'
+      shape?: 'rectangular' | 'pill' | 'circle' | 'square'
+      logo_alignment?: 'left' | 'center'
+      width?: number
+      locale?: string
+    },
+  ) => void
+  prompt: () => void
+  cancel: () => void
+  disableAutoSelect: () => void
+}
+
 export type AuthUser = {
   email: string
   name: string
+  sub?: string
 }
 
 declare global {
   interface Window {
     google?: {
       accounts: {
+        id?: GoogleId
         oauth2: {
           initTokenClient: (config: {
             client_id: string
@@ -43,6 +78,11 @@ declare global {
 
 let accessToken = ''
 let tokenExpiresAt = 0
+let ssoReady = false
+let ssoClientId = ''
+let ssoPrompted = false
+let ssoInit: Promise<boolean> | null = null
+let credentialHandler: ((credential: string) => void) | null = null
 
 export function normalizeClientId(raw: string) {
   return raw
@@ -63,6 +103,10 @@ export function googleClientId() {
 
 export function saveGoogleClientId(id: string) {
   const trimmed = normalizeClientId(id)
+  ssoReady = false
+  ssoClientId = ''
+  ssoInit = null
+  ssoPrompted = false
   if (!trimmed) {
     localStorage.removeItem(CLIENT_KEY)
     return
@@ -74,13 +118,20 @@ export function isLikelyClientId(id: string) {
   return /^[\w.-]+\.apps\.googleusercontent\.com$/.test(normalizeClientId(id))
 }
 
+function asUser(parsed: Partial<AuthUser>): AuthUser | null {
+  if (typeof parsed.email !== 'string' || !parsed.email.includes('@')) return null
+  return {
+    email: parsed.email,
+    name: typeof parsed.name === 'string' ? parsed.name : '',
+    sub: typeof parsed.sub === 'string' ? parsed.sub : undefined,
+  }
+}
+
 export function loadSession(): AuthUser | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<AuthUser>
-    if (typeof parsed.email !== 'string' || !parsed.email.includes('@')) return null
-    return { email: parsed.email, name: typeof parsed.name === 'string' ? parsed.name : '' }
+    return asUser(JSON.parse(raw) as Partial<AuthUser>)
   } catch {
     return null
   }
@@ -102,7 +153,7 @@ export function hasGoogleSession() {
 
 function ensureGisScript() {
   if (window.google?.accounts.oauth2) return
-  if (document.querySelector('script[data-gis]')) return
+  if (document.querySelector('script[src*="accounts.google.com/gsi/client"]')) return
   const script = document.createElement('script')
   script.src = 'https://accounts.google.com/gsi/client'
   script.async = true
@@ -129,6 +180,119 @@ function waitForGis(ms = 8000) {
       }
     }, 80)
   })
+}
+
+function waitForGoogleId(ms = 4000) {
+  if (window.google?.accounts.id) return Promise.resolve()
+  return new Promise<void>((resolve, reject) => {
+    const started = Date.now()
+    const tick = window.setInterval(() => {
+      if (window.google?.accounts.id) {
+        window.clearInterval(tick)
+        resolve()
+        return
+      }
+      if (Date.now() - started > ms) {
+        window.clearInterval(tick)
+        reject(new Error('Google のログインを読み込めませんでした'))
+      }
+    }, 80)
+  })
+}
+
+function decodeJwtPayload(credential: string): Record<string, unknown> {
+  const part = credential.split('.')[1]
+  if (!part) throw new Error('ログイン情報を読めませんでした')
+  const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
+  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0))
+  return JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>
+}
+
+export function userFromCredential(credential: string): AuthUser {
+  const claims = decodeJwtPayload(credential)
+  const user = asUser({
+    email: typeof claims.email === 'string' ? claims.email : undefined,
+    name: typeof claims.name === 'string' ? claims.name : undefined,
+    sub: typeof claims.sub === 'string' ? claims.sub : undefined,
+  })
+  if (!user) throw new Error('メールアドレスを取得できませんでした')
+  return user
+}
+
+export function onGoogleCredential(handler: ((credential: string) => void) | null) {
+  credentialHandler = handler
+}
+
+export function ensureGoogleSso() {
+  const clientId = googleClientId()
+  if (!clientId) return Promise.resolve(false)
+  if (ssoInit && ssoClientId === clientId) return ssoInit
+  ssoClientId = clientId
+  ssoInit = (async () => {
+    await waitForGis()
+    await waitForGoogleId()
+    const id = window.google?.accounts.id
+    if (!id) return false
+    id.initialize({
+      client_id: clientId,
+      auto_select: true,
+      cancel_on_tap_outside: true,
+      context: 'signin',
+      itp_support: true,
+      use_fedcm_for_prompt: true,
+      callback: (response) => {
+        if (response.credential) credentialHandler?.(response.credential)
+      },
+    })
+    ssoReady = true
+    return true
+  })()
+  return ssoInit
+}
+
+export function promptGoogleSso() {
+  if (!ssoReady || ssoPrompted) return
+  ssoPrompted = true
+  try {
+    window.google?.accounts.id?.prompt()
+  } catch {
+    /* FedCM が使えない環境では無視 */
+  }
+}
+
+export function cancelGoogleSso() {
+  try {
+    window.google?.accounts.id?.cancel()
+  } catch {
+    /* ignore */
+  }
+}
+
+export function disableGoogleAutoSelect() {
+  ssoPrompted = true
+  try {
+    window.google?.accounts.id?.disableAutoSelect()
+  } catch {
+    /* ignore */
+  }
+}
+
+export function renderGoogleSignInButton(parent: HTMLElement, width = 320) {
+  const id = window.google?.accounts.id
+  if (!id || !ssoReady) return false
+  parent.replaceChildren()
+  id.renderButton(parent, {
+    type: 'standard',
+    theme: 'outline',
+    size: 'large',
+    text: 'signin_with',
+    shape: 'rectangular',
+    logo_alignment: 'left',
+    locale: 'ja',
+    width: Math.max(240, Math.min(400, Math.round(width))),
+  })
+  return parent.childElementCount > 0
 }
 
 function requestToken(clientId: string, interactive: boolean) {
@@ -191,9 +355,9 @@ async function fetchProfile(token: string): Promise<AuthUser> {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) throw new Error('アカウント情報を取得できませんでした')
-  const body = (await res.json()) as { email?: string; name?: string }
+  const body = (await res.json()) as { email?: string; name?: string; sub?: string }
   if (!body.email) throw new Error('メールアドレスを取得できませんでした')
-  return { email: body.email, name: body.name ?? '' }
+  return { email: body.email, name: body.name ?? '', sub: body.sub }
 }
 
 export async function getAccessToken(interactive = true) {
@@ -209,6 +373,19 @@ export async function getAccessToken(interactive = true) {
   }
 }
 
+export async function signInFromCredential(credential: string): Promise<AuthUser> {
+  const user = userFromCredential(credential)
+  saveSession(user)
+  try {
+    await getAccessToken(true)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (message === 'ログインをキャンセルしました' || message === 'SILENT_FAIL') return user
+    throw error
+  }
+  return user
+}
+
 export async function signIn(interactive = true): Promise<AuthUser> {
   const token = await getAccessToken(interactive)
   const user = await fetchProfile(token)
@@ -218,6 +395,8 @@ export async function signIn(interactive = true): Promise<AuthUser> {
 
 export async function signOut() {
   const token = accessToken
+  disableGoogleAutoSelect()
+  cancelGoogleSso()
   clearSession()
   if (token && window.google?.accounts.oauth2.revoke) {
     await new Promise<void>((resolve) => {

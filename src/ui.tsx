@@ -9,6 +9,7 @@ export function Field({
   placeholder,
   rows = 3,
   action,
+  live,
 }: {
   label: string
   hint?: string
@@ -18,6 +19,7 @@ export function Field({
   placeholder?: string
   rows?: number
   action?: ReactNode
+  live?: string
 }) {
   return (
     <div className="field">
@@ -41,6 +43,7 @@ export function Field({
           aria-label={label}
         />
       )}
+      {live ? <p className="speech-live">{live}</p> : null}
       {hint ? <span className="field-hint">{hint}</span> : null}
     </div>
   )
@@ -71,16 +74,18 @@ export function Section({
   title,
   children,
   variant = 'plain',
+  tone,
   action,
 }: {
   kicker?: string
   title: string
   children: ReactNode
   variant?: 'plain' | 'night' | 'panel'
+  tone?: 'coral' | 'indigo' | 'green' | 'gold'
   action?: ReactNode
 }) {
   return (
-    <section className={`section section-${variant}`}>
+    <section className={`section section-${variant}${tone ? ` tone-${tone}` : ''}`}>
       <header className="section-head">
         {kicker ? <p className="kicker">{kicker}</p> : null}
         <div className="section-title-row">

@@ -1,7 +1,9 @@
 import { useState, type CSSProperties } from 'react'
+import { dateParts, todayISO, weekDates, weekStart, weekdayJa } from './dates'
 import { useStore } from './store'
 import { Button } from './ui'
-import { asTaskLane, type TaskLane, type WorkTask } from './types'
+import { WeekBoard } from './WeekBoard'
+import { asCaseColor, asTaskLane, CASE_COLORS, nextCaseColor, type TaskLane, type WorkTask } from './types'
 
 const LANES: { id: TaskLane; label: string }[] = [
   { id: 'open', label: '未完了' },
@@ -15,17 +17,42 @@ const MOVES: { id: TaskLane; label: string }[] = [
   { id: 'done', label: '完了へ' },
 ]
 
-const CASE_COLORS = ['#f06a6a', '#796eff', '#25aa61', '#f4b942']
-
-function colorOf(index: number) {
-  return CASE_COLORS[index % CASE_COLORS.length]
+function ColorPicks({
+  value,
+  onChange,
+  label,
+}: {
+  value: string
+  onChange: (color: string) => void
+  label: string
+}) {
+  return (
+    <div className="color-picks" role="radiogroup" aria-label={label}>
+      {CASE_COLORS.map((color) => {
+        const on = color === value
+        return (
+          <button
+            key={color}
+            type="button"
+            className={on ? 'color-pick on' : 'color-pick'}
+            style={{ background: color }}
+            aria-label={color}
+            aria-checked={on}
+            role="radio"
+            onClick={() => onChange(color)}
+          />
+        )
+      })}
+    </div>
+  )
 }
 
 export function OrganizePage() {
-  const { state, addCase, renameCase, removeCase, addTask, renameTask, moveTask, removeTask } =
+  const { state, addCase, renameCase, setCaseColor, removeCase, addTask, renameTask, moveTask, scheduleTask, removeTask } =
     useStore()
   const [showDone, setShowDone] = useState(false)
   const [caseName, setCaseName] = useState('')
+  const [newColor, setNewColor] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [dragId, setDragId] = useState<string | null>(null)
   const [overLane, setOverLane] = useState<TaskLane | null>(null)
@@ -33,16 +60,19 @@ export function OrganizePage() {
   const lanes = showDone ? LANES : LANES.filter((lane) => lane.id !== 'done')
   const cases = state.cases ?? []
   const tasks = state.tasks ?? []
-  const caseNameOf = (id: string) => cases.find((c) => c.id === id)?.name ?? '案件なし'
-  const caseIndex = (id: string) => cases.findIndex((c) => c.id === id)
+  const caseOf = (id: string) => cases.find((c) => c.id === id)
 
   function tasksIn(lane: TaskLane) {
     return tasks.filter((task) => asTaskLane(task.lane) === lane)
   }
 
+  const weekDays = weekDates(weekStart(todayISO()))
+  const colorForNew = newColor ?? nextCaseColor(cases)
+
   function submitCase() {
-    addCase(caseName)
+    addCase(caseName, colorForNew)
     setCaseName('')
+    setNewColor(null)
   }
 
   function submitTask(caseId: string) {
@@ -56,7 +86,7 @@ export function OrganizePage() {
         <div>
           <p className="kicker">朝と夜に、仕事の棚を整える</p>
           <h1>整理</h1>
-          <p className="muted">カードを進捗中・未完了・完了へ動かして、次に手を付けることを決める。</p>
+          <p className="muted">曜日にやることを置き、終わらなければ翌日へ移す。案件の棚でもカードを動かせます。</p>
         </div>
         <div className="page-head-side">
           <div className="filter-tabs" role="group" aria-label="完了の表示">
@@ -79,6 +109,8 @@ export function OrganizePage() {
           </div>
         </div>
       </div>
+
+      <WeekBoard />
 
       <div className="board" style={{ '--lane-count': lanes.length } as CSSProperties}>
         {lanes.map((lane) => {
@@ -120,11 +152,14 @@ export function OrganizePage() {
                     <TaskCard
                       key={task.id}
                       task={task}
-                      caseName={caseNameOf(task.caseId)}
-                      color={colorOf(Math.max(0, caseIndex(task.caseId)))}
+                      caseName={caseOf(task.caseId)?.name ?? '案件なし'}
+                      color={asCaseColor(caseOf(task.caseId)?.color)}
+                      scheduledOn={task.scheduledOn}
+                      weekDays={weekDays}
                       dragging={dragId === task.id}
                       onRename={(title) => renameTask(task.id, title)}
                       onMove={(next) => moveTask(task.id, next)}
+                      onSchedule={(next) => scheduleTask(task.id, next)}
                       onRemove={() => removeTask(task.id)}
                       onDragStart={() => setDragId(task.id)}
                       onDragEnd={() => {
@@ -140,7 +175,7 @@ export function OrganizePage() {
         })}
       </div>
 
-      <section className="section section-panel case-panel">
+      <section className="section section-panel case-panel tone-gold">
         <header className="section-head">
           <p className="kicker">案件</p>
           <h2>行っている仕事</h2>
@@ -149,9 +184,13 @@ export function OrganizePage() {
           <p className="muted">案件を足すと、その中に細かい作業を置けます。</p>
         ) : (
           <ul className="case-list">
-            {cases.map((row, i) => (
+            {cases.map((row) => (
               <li key={row.id} className="case-row">
-                <span className="case-dot" style={{ background: colorOf(i) }} aria-hidden />
+                <ColorPicks
+                  value={asCaseColor(row.color)}
+                  onChange={(color) => setCaseColor(row.id, color)}
+                  label={`${row.name}の色`}
+                />
                 <input
                   className="input-inline"
                   defaultValue={row.name}
@@ -197,6 +236,7 @@ export function OrganizePage() {
             submitCase()
           }}
         >
+          <ColorPicks value={colorForNew} onChange={setNewColor} label="新しい案件の色" />
           <input
             value={caseName}
             placeholder="新しい案件名"
@@ -216,9 +256,12 @@ function TaskCard({
   task,
   caseName,
   color,
+  scheduledOn,
+  weekDays,
   dragging,
   onRename,
   onMove,
+  onSchedule,
   onRemove,
   onDragStart,
   onDragEnd,
@@ -226,9 +269,12 @@ function TaskCard({
   task: WorkTask
   caseName: string
   color: string
+  scheduledOn?: string
+  weekDays: string[]
   dragging: boolean
   onRename: (title: string) => void
   onMove: (lane: TaskLane) => void
+  onSchedule: (date: string) => void
   onRemove: () => void
   onDragStart: () => void
   onDragEnd: () => void
@@ -256,6 +302,24 @@ function TaskCard({
           aria-label="作業名"
           onBlur={(e) => onRename(e.target.value)}
         />
+        <select
+          className="task-day"
+          value={scheduledOn && weekDays.includes(scheduledOn) ? scheduledOn : scheduledOn || ''}
+          aria-label="取り組む日"
+          onChange={(e) => onSchedule(e.target.value)}
+        >
+          <option value="">日付なし</option>
+          {scheduledOn && !weekDays.includes(scheduledOn) ? (
+            <option value={scheduledOn}>
+              {dateParts(scheduledOn).month}/{dateParts(scheduledOn).day}（{weekdayJa(scheduledOn)}）
+            </option>
+          ) : null}
+          {weekDays.map((date) => (
+            <option key={date} value={date}>
+              {weekdayJa(date)} {dateParts(date).month}/{dateParts(date).day}
+            </option>
+          ))}
+        </select>
         <div className="card-moves">
           {MOVES.filter((move) => move.id !== asTaskLane(task.lane)).map((move) => (
             <Button key={move.id} variant="quiet" onClick={() => onMove(move.id)}>

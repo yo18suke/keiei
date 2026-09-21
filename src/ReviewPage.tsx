@@ -16,14 +16,13 @@ import {
 } from './dates'
 import { docFilename, formatMonthDoc, formatWeekDoc } from './exportDoc'
 import { ExportActions } from './ExportActions'
-import { MicButton } from './MicButton'
+import { SpeakableField } from './MicButton'
 import { daysOn, digestOf, type DigestLine, type PeriodDigest } from './selectors'
-import { appendSpoken } from './speech'
 import { useStore } from './store'
-import { Button, Field, Section } from './ui'
+import { Button, Section } from './ui'
 
 export function ReviewPage({ onOpenDay }: { onOpenDay: (date: string) => void }) {
-  const { state, patchWeekNote, patchMonthNote } = useStore()
+  const { state, patchWeekNote, patchMonthNote, appendWeekNote, appendMonthNote } = useStore()
   const today = todayISO()
   const [week, setWeek] = useState(() => weekStart(today))
   const [month, setMonth] = useState(() => ({
@@ -48,7 +47,7 @@ export function ReviewPage({ onOpenDay }: { onOpenDay: (date: string) => void })
         </div>
       </div>
 
-      <Section kicker="今週" title={formatWeekRange(week)} variant="panel">
+      <Section kicker="今週" title={formatWeekRange(week)} variant="panel" tone="indigo">
         <div className="date-nav">
           <Button variant="quiet" onClick={() => setWeek(addDays(week, -7))}>
             前の週
@@ -63,27 +62,20 @@ export function ReviewPage({ onOpenDay }: { onOpenDay: (date: string) => void })
           </Button>
         </div>
         <Digest digest={weekDigest} empty="この週は、まだ日々の記入がない。" onOpenDay={onOpenDay} />
-        <Field
+        <SpeakableField
           label="今週の振り返り"
           hint="上に並んだものから、残すことだけ書く。"
           multiline
           rows={5}
           value={state.weekNotes?.[week] ?? ''}
           placeholder="この週で、続けたいことと変えたいこと"
-          action={
-            <MicButton
-              compact
-              onFinal={(text) =>
-                patchWeekNote(week, appendSpoken(state.weekNotes?.[week] ?? '', text))
-              }
-            />
-          }
+          onAppend={(text) => appendWeekNote(week, text)}
           onChange={(v) => patchWeekNote(week, v)}
         />
         <ExportActions text={formatWeekDoc(state, week)} filename={docFilename(`週-${week}`)} />
       </Section>
 
-      <Section kicker="今月" title={formatMonth(month.year, month.month)} variant="panel">
+      <Section kicker="今月" title={formatMonth(month.year, month.month)} variant="panel" tone="gold">
         <div className="date-nav">
           <Button variant="quiet" onClick={() => setMonth(prevMonth(month.year, month.month))}>
             前の月
@@ -98,24 +90,14 @@ export function ReviewPage({ onOpenDay }: { onOpenDay: (date: string) => void })
           </Button>
         </div>
         <Digest digest={monthDigest} empty="この月は、まだ日々の記入がない。" onOpenDay={onOpenDay} />
-        <Field
+        <SpeakableField
           label="今月の振り返り"
           hint="週の積み重ねから、今月いちばん残ることを。"
           multiline
           rows={5}
           value={state.monthNotes?.[monthKey(month.year, month.month)] ?? ''}
           placeholder="この月で、続けたいことと変えたいこと"
-          action={
-            <MicButton
-              compact
-              onFinal={(text) =>
-                patchMonthNote(
-                  monthKey(month.year, month.month),
-                  appendSpoken(state.monthNotes?.[monthKey(month.year, month.month)] ?? '', text),
-                )
-              }
-            />
-          }
+          onAppend={(text) => appendMonthNote(monthKey(month.year, month.month), text)}
           onChange={(v) => patchMonthNote(monthKey(month.year, month.month), v)}
         />
         <ExportActions

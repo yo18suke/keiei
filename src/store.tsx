@@ -11,13 +11,18 @@ import {
 import { useAuth } from './auth'
 import { loadCloud, saveCloud } from './cloud'
 import { emptyDay } from './selectors'
+import { asDateList, isISODate } from './todos'
+import { appendSpoken } from './speech'
 import { mergeStates } from './sync'
-import { todayISO } from './dates'
+import { addDays, todayISO } from './dates'
 import {
   emptyState,
   type DayRecord,
   type State,
+  asCaseColor,
   asTaskLane,
+  CASE_COLORS,
+  nextCaseColor,
   type TaskLane,
   type WorkCase,
   type WorkTask,
@@ -35,7 +40,11 @@ function migrateCases(raw: unknown): WorkCase[] {
     const row = item as Partial<WorkCase>
     const name = typeof row.name === 'string' ? row.name.trim() : ''
     if (!row.id || !name) continue
-    next.push({ id: String(row.id), name })
+    next.push({
+      id: String(row.id),
+      name,
+      color: asCaseColor(row.color, CASE_COLORS[next.length % CASE_COLORS.length]),
+    })
   }
   return next
 }
@@ -55,6 +64,8 @@ function migrateTasks(raw: unknown): WorkTask[] {
       title,
       lane,
       doneAt: typeof row.doneAt === 'string' ? row.doneAt : undefined,
+      scheduledOn: isISODate(row.scheduledOn) ? row.scheduledOn : undefined,
+      plannedDates: asDateList(row.plannedDates, isISODate(row.scheduledOn) ? row.scheduledOn : undefined),
     })
   }
   return next
@@ -147,14 +158,21 @@ type Store = {
   state: State
   syncStatus: SyncStatus
   patchDay: (date: string, patch: Partial<Omit<DayRecord, 'date'>>) => void
+  appendDay: (date: string, field: 'note' | 'y' | 'w' | 't', text: string) => void
   patchWeekNote: (week: string, note: string) => void
+  appendWeekNote: (week: string, text: string) => void
   patchMonthNote: (key: string, note: string) => void
-  addCase: (name: string) => void
+  appendMonthNote: (key: string, text: string) => void
+  addCase: (name: string, color?: string) => void
   renameCase: (id: string, name: string) => void
+  setCaseColor: (id: string, color: string) => void
   removeCase: (id: string) => void
-  addTask: (caseId: string, title: string, lane?: TaskLane) => void
+  addTask: (caseId: string, title: string, lane?: TaskLane, scheduledOn?: string) => void
   renameTask: (id: string, title: string) => void
   moveTask: (id: string, lane: TaskLane) => void
+  scheduleTask: (id: string, date: string | '') => void
+  toggleTaskDone: (id: string, date: string) => void
+  carryTasks: (fromDate: string) => void
   removeTask: (id: string) => void
   replaceArchive: (next: Partial<State>) => void
   flushCloud: () => Promise<void>
@@ -306,10 +324,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
         })
       },
+      appendDay(date, field, text) {
+        const spoken = text.trim()
+        if (!spoken) return
+        commit((s) => {
+          if (!s.days[date]) s.days[date] = emptyDay(date)
+          s.days[date][field] = appendSpoken(s.days[date][field], spoken)
+          s.days[date].skipped = false
+        })
+      },
       patchWeekNote(week, note) {
         commit((s) => {
           if (note.trim()) s.weekNotes[week] = note
           else delete s.weekNotes[week]
+        })
+      },
+      appendWeekNote(week, text) {
+        const spoken = text.trim()
+        if (!spoken) return
+        commit((s) => {
+          s.weekNotes[week] = appendSpoken(s.weekNotes[week] ?? '', spoken)
         })
       },
       patchMonthNote(key, note) {
@@ -318,11 +352,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           else delete s.monthNotes[key]
         })
       },
-      addCase(name) {
+      appendMonthNote(key, text) {
+        const spoken = text.trim()
+        if (!spoken) return
+        commit((s) => {
+          s.monthNotes[key] = appendSpoken(s.monthNotes[key] ?? '', spoken)
+        })
+      },
+      addCase(name, color) {
         const trimmed = name.trim()
         if (!trimmed) return
         commit((s) => {
-          s.cases.push({ id: nid(), name: trimmed })
+          s.cases.push({
+            id: nid(),
+            name: trimmed,
+            color: asCaseColor(color, nextCaseColor(s.cases)),
+          })
         })
       },
       renameCase(id, name) {
@@ -333,23 +378,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (row) row.name = trimmed
         })
       },
+      setCaseColor(id, color) {
+        const next = asCaseColor(color, '')
+        if (!next) return
+        commit((s) => {
+          const row = s.cases.find((c) => c.id === id)
+          if (row) row.color = next
+        })
+      },
       removeCase(id) {
         commit((s) => {
           s.cases = s.cases.filter((c) => c.id !== id)
           s.tasks = s.tasks.filter((t) => t.caseId !== id)
         })
       },
-      addTask(caseId, title, lane = 'open') {
+      addTask(caseId, title, lane = 'open', scheduledOn) {
         const trimmed = title.trim()
         if (!trimmed) return
         commit((s) => {
           if (!s.cases.some((c) => c.id === caseId)) return
+          const on = isISODate(scheduledOn) ? scheduledOn : undefined
           s.tasks.push({
             id: nid(),
             caseId,
             title: trimmed,
             lane,
-            doneAt: lane === 'done' ? todayISO() : undefined,
+            doneAt: lane === 'done' ? on ?? todayISO() : undefined,
+            scheduledOn: on,
+            plannedDates: on ? [on] : [],
           })
         })
       },
@@ -366,7 +422,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const row = s.tasks.find((t) => t.id === id)
           if (!row || row.lane === lane) return
           row.lane = lane
-          row.doneAt = lane === 'done' ? todayISO() : undefined
+          if (lane === 'done') {
+            const on = todayISO()
+            row.doneAt = on
+            if (!row.scheduledOn) row.scheduledOn = on
+            row.plannedDates = asDateList(row.plannedDates, row.scheduledOn)
+          } else {
+            row.doneAt = undefined
+          }
+        })
+      },
+      scheduleTask(id, date) {
+        commit((s) => {
+          const row = s.tasks.find((t) => t.id === id)
+          if (!row) return
+          if (!date) {
+            row.scheduledOn = undefined
+            return
+          }
+          if (!isISODate(date)) return
+          row.scheduledOn = date
+          row.plannedDates = asDateList(row.plannedDates, date)
+        })
+      },
+      toggleTaskDone(id, date) {
+        if (!isISODate(date)) return
+        commit((s) => {
+          const row = s.tasks.find((t) => t.id === id)
+          if (!row) return
+          if (asTaskLane(row.lane) === 'done' && row.doneAt === date) {
+            row.lane = 'open'
+            row.doneAt = undefined
+            return
+          }
+          row.lane = 'done'
+          row.doneAt = date
+          row.scheduledOn = date
+          row.plannedDates = asDateList(row.plannedDates, date)
+        })
+      },
+      carryTasks(fromDate) {
+        if (!isISODate(fromDate)) return
+        const next = addDays(fromDate, 1)
+        commit((s) => {
+          for (const row of s.tasks) {
+            if (row.scheduledOn !== fromDate || asTaskLane(row.lane) === 'done') continue
+            row.scheduledOn = next
+            row.plannedDates = asDateList(row.plannedDates, next)
+          }
         })
       },
       removeTask(id) {

@@ -1,4 +1,5 @@
 import { useDictation } from './speech'
+import { Field } from './ui'
 
 function MicIcon() {
   return (
@@ -20,10 +21,55 @@ export function MicButton({
   hint?: string
   compact?: boolean
 }) {
-  const { supported, listening, interim, error, toggle } = useDictation(onFinal)
+  const dictation = useDictation(onFinal)
+  return <MicToggle dictation={dictation} hint={hint} compact={compact} />
+}
+
+export function SpeakableField({
+  onAppend,
+  ...field
+}: {
+  label: string
+  hint?: string
+  value: string
+  onChange: (v: string) => void
+  multiline?: boolean
+  placeholder?: string
+  rows?: number
+  onAppend: (text: string) => void
+}) {
+  const dictation = useDictation(onAppend)
+  return (
+    <Field
+      {...field}
+      live={dictation.listening ? dictation.interim || '聞いています…' : dictation.error}
+      action={<MicToggle dictation={dictation} compact hideStatus />}
+    />
+  )
+}
+
+export function MicToggle({
+  dictation,
+  hint,
+  compact,
+  hideStatus,
+}: {
+  dictation: ReturnType<typeof useDictation>
+  hint?: string
+  compact?: boolean
+  hideStatus?: boolean
+}) {
+  const { supported, listening, interim, error, toggle } = dictation
+  const status = hideStatus ? '' : listening ? interim || '聞いています…' : error
 
   if (!supported) {
-    return compact ? null : <span className="muted">このブラウザでは話せません</span>
+    return compact ? (
+      <button type="button" className="mic" disabled title="このブラウザでは話せません" aria-label="話せません">
+        <MicIcon />
+      </button>
+    ) : (
+      <span className="muted">このブラウザでは話せません。Chrome か Safari で開いてください。</span>
+    )
   }
 
   return (
@@ -38,12 +84,8 @@ export function MicButton({
       >
         <MicIcon />
       </button>
-      {compact ? null : listening ? (
-        <span className="muted">聞いています{interim ? `：${interim}` : '…'}</span>
-      ) : hint ? (
-        <span className="muted">{hint}</span>
-      ) : null}
-      {compact ? null : error ? <span className="muted">{error}</span> : null}
+      {status ? <span className={error && !listening ? 'speech-live error' : 'muted'}>{status}</span> : null}
+      {!listening && !error && hint && !compact ? <span className="muted">{hint}</span> : null}
     </div>
   )
 }

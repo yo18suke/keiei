@@ -135,7 +135,7 @@ function AppShell() {
               </div>
             ) : (
               <Button variant="quiet" onClick={goAccount}>
-                登録・ログイン
+                ログイン
               </Button>
             )}
           </div>

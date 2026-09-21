@@ -1,5 +1,7 @@
 import { asset } from './assets'
 import { useAuth } from './auth'
+import { GoogleSignInButton } from './GoogleSignInButton'
+import { googleClientId } from './googleAuth'
 import { Button } from './ui'
 
 const FEATURES = [
@@ -53,7 +55,7 @@ const PROBLEMS = [
 
 const EXTRAS = [
   { title: '音声入力', body: '話した内容が、そのままメモに入る。', figure: 'mic' },
-  { title: 'どの端末でも同じ', body: 'Googleアカウントで入り、書いたものを同期する。', figure: 'save' },
+  { title: 'どの端末でも同じ', body: 'Googleのシングルサインオンで入り、書いたものを同期する。', figure: 'save' },
   { title: 'ドキュメントへ', body: 'コピーして貼るか、Google ドキュメントに送る。', figure: 'doc' },
 ] as const
 
@@ -78,6 +80,7 @@ export function LandingPage({
   onAccount: () => void
 }) {
   const { user } = useAuth()
+  const canSso = Boolean(googleClientId())
   return (
     <div className="lp">
       <header className="lp-bar">
@@ -99,7 +102,7 @@ export function LandingPage({
                 この端末だけで始める
               </Button>
               <Button variant="primary" onClick={onAccount}>
-                登録・ログイン
+                {canSso ? 'Googleで入る' : '登録・ログイン'}
               </Button>
             </>
           )}
@@ -114,16 +117,18 @@ export function LandingPage({
         <div className="lp-hero-copy">
           <p className="kicker">日々の振り返り</p>
           <h1>リフレクションパレット</h1>
-          <p className="lp-lead">思ったことを書いて、仕事を整え、週と月で束ねる。登録すると、どの端末でも同じ内容に触れます。</p>
+          <p className="lp-lead">思ったことを書いて、仕事を整え、週と月で束ねる。Google のシングルサインオンで入ると、どの端末でも同じ内容に触れます。</p>
           {user ? (
             <Button variant="primary" onClick={onStart}>
               アプリを開く
             </Button>
           ) : (
             <div className="lp-hero-actions">
-              <Button variant="primary" onClick={onAccount}>
-                登録・ログイン
-              </Button>
+              {canSso ? <GoogleSignInButton onSignedIn={onStart} /> : (
+                <Button variant="primary" onClick={onAccount}>
+                  登録・ログイン
+                </Button>
+              )}
               <Button variant="quiet" onClick={onStart}>
                 この端末だけで始める
               </Button>
@@ -226,10 +231,10 @@ export function LandingPage({
         <p className="muted">
           {user
             ? `${user.email} で同期しています。`
-            : '登録すると、スマホとパソコンで同じ振り返りに触れます。'}
+            : 'Google で入ると、スマホとパソコンで同じ振り返りに触れます。'}
         </p>
         <Button variant="primary" onClick={user ? onStart : onAccount}>
-          {user ? 'アプリを開く' : '登録・ログイン'}
+          {user ? 'アプリを開く' : canSso ? 'Googleで入る' : '登録・ログイン'}
         </Button>
       </footer>
     </div>

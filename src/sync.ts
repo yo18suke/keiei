@@ -1,4 +1,5 @@
-import { asTaskLane, emptyState, type DayRecord, type State, type WorkCase, type WorkTask } from './types'
+import { asTaskLane, emptyState, type DayRecord, type State, type WorkCase, type WorkTask, asCaseColor } from './types'
+import { asDateList } from './todos'
 
 function pickText(a: string, b: string) {
   if (!a.trim()) return b
@@ -34,8 +35,12 @@ function mergeCases(a: WorkCase[], b: WorkCase[]) {
   const map = new Map<string, WorkCase>()
   for (const item of [...a, ...b]) {
     const prev = map.get(item.id)
-    if (!prev) map.set(item.id, item)
-    else map.set(item.id, { id: item.id, name: pickText(prev.name, item.name) })
+    if (!prev) map.set(item.id, { ...item, color: asCaseColor(item.color) })
+    else map.set(item.id, {
+      id: item.id,
+      name: pickText(prev.name, item.name),
+      color: asCaseColor(item.color, asCaseColor(prev.color)),
+    })
   }
   return [...map.values()]
 }
@@ -52,7 +57,10 @@ function mergeTasks(a: WorkTask[], b: WorkTask[]) {
     const task = { ...item, lane: asTaskLane(item.lane) }
     const prev = map.get(task.id)
     if (!prev) {
-      map.set(task.id, task)
+      map.set(task.id, {
+        ...task,
+        plannedDates: asDateList(task.plannedDates, task.scheduledOn),
+      })
       continue
     }
     const richer = LANE_RANK[task.lane] >= LANE_RANK[prev.lane] ? task : prev
@@ -60,6 +68,8 @@ function mergeTasks(a: WorkTask[], b: WorkTask[]) {
       ...richer,
       title: pickText(prev.title, task.title),
       doneAt: richer.lane === 'done' ? richer.doneAt || prev.doneAt || task.doneAt : undefined,
+      scheduledOn: richer.scheduledOn || prev.scheduledOn,
+      plannedDates: asDateList([...(prev.plannedDates ?? []), ...(task.plannedDates ?? [])], richer.scheduledOn || prev.scheduledOn),
     })
   }
   return [...map.values()]
