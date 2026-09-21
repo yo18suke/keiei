@@ -40,6 +40,7 @@ function mergeCases(a: WorkCase[], b: WorkCase[]) {
       id: item.id,
       name: pickText(prev.name, item.name),
       color: asCaseColor(item.color, asCaseColor(prev.color)),
+      doneAt: item.doneAt || prev.doneAt,
     })
   }
   return [...map.values()]

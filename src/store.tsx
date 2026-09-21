@@ -44,6 +44,7 @@ function migrateCases(raw: unknown): WorkCase[] {
       id: String(row.id),
       name,
       color: asCaseColor(row.color, CASE_COLORS[next.length % CASE_COLORS.length]),
+      doneAt: typeof row.doneAt === 'string' ? row.doneAt : undefined,
     })
   }
   return next
@@ -166,6 +167,8 @@ type Store = {
   addCase: (name: string, color?: string) => void
   renameCase: (id: string, name: string) => void
   setCaseColor: (id: string, color: string) => void
+  completeCase: (id: string) => void
+  reopenCase: (id: string) => void
   removeCase: (id: string) => void
   addTask: (caseId: string, title: string, lane?: TaskLane, scheduledOn?: string) => void
   renameTask: (id: string, title: string) => void
@@ -181,10 +184,11 @@ type Store = {
 const StoreContext = createContext<Store | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth()
+  const { user, driveReady } = useAuth()
   const [state, setState] = useState<State>(load)
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('local')
   const userRef = useRef(user)
+  const driveRef = useRef(driveReady)
   const stateRef = useRef(state)
   const lastPush = useRef(0)
   const saveTimer = useRef(0)
@@ -194,11 +198,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [user])
 
   useEffect(() => {
+    driveRef.current = driveReady
+  }, [driveReady])
+
+  useEffect(() => {
     stateRef.current = state
   }, [state])
 
   const pushCloud = useCallback(async (next: State) => {
-    if (!userRef.current) return
+    if (!userRef.current || !driveRef.current) return
     setSyncStatus('saving')
     try {
       lastPush.current = await saveCloud(next)
@@ -210,7 +218,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const schedulePush = useCallback(
     (next: State) => {
-      if (!userRef.current) return
+      if (!userRef.current || !driveRef.current) return
       window.clearTimeout(saveTimer.current)
       saveTimer.current = window.setTimeout(() => {
         void pushCloud(next)
@@ -238,7 +246,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !driveReady) {
       setSyncStatus('local')
       return
     }
@@ -273,7 +281,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     })()
 
     const pull = async () => {
-      if (document.visibilityState === 'hidden' || !userRef.current) return
+      if (document.visibilityState === 'hidden' || !userRef.current || !driveRef.current) return
       try {
         const remote = await loadCloud()
         if (!remote || remote.updatedAt <= lastPush.current) return
@@ -300,7 +308,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', onFocus)
       window.clearInterval(timer)
     }
-  }, [user])
+  }, [driveReady, user])
 
 
   const store = useMemo<Store>(
@@ -384,6 +392,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         commit((s) => {
           const row = s.cases.find((c) => c.id === id)
           if (row) row.color = next
+        })
+      },
+      completeCase(id) {
+        commit((s) => {
+          const row = s.cases.find((c) => c.id === id)
+          if (!row || row.doneAt) return
+          const on = todayISO()
+          row.doneAt = on
+          for (const task of s.tasks) {
+            if (task.caseId !== id || asTaskLane(task.lane) === 'done') continue
+            task.lane = 'done'
+            task.doneAt = on
+            if (!task.scheduledOn) task.scheduledOn = on
+            task.plannedDates = asDateList(task.plannedDates, task.scheduledOn)
+          }
+        })
+      },
+      reopenCase(id) {
+        commit((s) => {
+          const row = s.cases.find((c) => c.id === id)
+          if (row) row.doneAt = undefined
         })
       },
       removeCase(id) {
@@ -485,7 +514,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       async flushCloud() {
         window.clearTimeout(saveTimer.current)
-        if (!userRef.current) return
+        if (!userRef.current || !driveRef.current) return
         await pushCloud(stateRef.current)
       },
     }),

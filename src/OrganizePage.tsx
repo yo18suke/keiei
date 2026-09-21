@@ -17,48 +17,34 @@ const MOVES: { id: TaskLane; label: string }[] = [
   { id: 'done', label: '完了へ' },
 ]
 
-function ColorPicks({
-  value,
-  onChange,
-  label,
-}: {
-  value: string
-  onChange: (color: string) => void
-  label: string
-}) {
-  return (
-    <div className="color-picks" role="radiogroup" aria-label={label}>
-      {CASE_COLORS.map((color) => {
-        const on = color === value
-        return (
-          <button
-            key={color}
-            type="button"
-            className={on ? 'color-pick on' : 'color-pick'}
-            style={{ background: color }}
-            aria-label={color}
-            aria-checked={on}
-            role="radio"
-            onClick={() => onChange(color)}
-          />
-        )
-      })}
-    </div>
-  )
+function cycleCaseColor(current: string) {
+  const i = CASE_COLORS.indexOf(asCaseColor(current) as (typeof CASE_COLORS)[number])
+  return CASE_COLORS[(i + 1) % CASE_COLORS.length]
 }
 
 export function OrganizePage() {
-  const { state, addCase, renameCase, setCaseColor, removeCase, addTask, renameTask, moveTask, scheduleTask, removeTask } =
-    useStore()
+  const {
+    state,
+    addCase,
+    renameCase,
+    setCaseColor,
+    completeCase,
+    reopenCase,
+    addTask,
+    renameTask,
+    moveTask,
+    scheduleTask,
+    removeTask,
+  } = useStore()
   const [showDone, setShowDone] = useState(false)
   const [caseName, setCaseName] = useState('')
-  const [newColor, setNewColor] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [dragId, setDragId] = useState<string | null>(null)
   const [overLane, setOverLane] = useState<TaskLane | null>(null)
 
   const lanes = showDone ? LANES : LANES.filter((lane) => lane.id !== 'done')
   const cases = state.cases ?? []
+  const visibleCases = showDone ? cases : cases.filter((row) => !row.doneAt)
   const tasks = state.tasks ?? []
   const caseOf = (id: string) => cases.find((c) => c.id === id)
 
@@ -67,12 +53,11 @@ export function OrganizePage() {
   }
 
   const weekDays = weekDates(weekStart(todayISO()))
-  const colorForNew = newColor ?? nextCaseColor(cases)
+  const colorForNew = nextCaseColor(cases)
 
   function submitCase() {
     addCase(caseName, colorForNew)
     setCaseName('')
-    setNewColor(null)
   }
 
   function submitTask(caseId: string) {
@@ -84,8 +69,8 @@ export function OrganizePage() {
     <div className="page page-organize">
       <div className="page-head">
         <div>
-          <p className="kicker">朝と夜に、仕事の棚を整える</p>
-          <h1>整理</h1>
+          <p className="kicker">曜日にやることを置く</p>
+          <h1>TODO</h1>
           <p className="muted">曜日にやることを置き、終わらなければ翌日へ移す。案件の棚でもカードを動かせます。</p>
         </div>
         <div className="page-head-side">
@@ -180,53 +165,66 @@ export function OrganizePage() {
           <p className="kicker">案件</p>
           <h2>行っている仕事</h2>
         </header>
-        {cases.length === 0 ? (
-          <p className="muted">案件を足すと、その中に細かい作業を置けます。</p>
+        {visibleCases.length === 0 ? (
+          <p className="muted">
+            {cases.length === 0
+              ? '案件を足すと、その中に細かい作業を置けます。'
+              : '完了した案件は「完了を表示」で見られます。'}
+          </p>
         ) : (
           <ul className="case-list">
-            {cases.map((row) => (
-              <li key={row.id} className="case-row">
-                <ColorPicks
-                  value={asCaseColor(row.color)}
-                  onChange={(color) => setCaseColor(row.id, color)}
-                  label={`${row.name}の色`}
-                />
-                <input
-                  className="input-inline"
-                  defaultValue={row.name}
-                  key={row.name}
-                  aria-label="案件名"
-                  onBlur={(e) => renameCase(row.id, e.target.value)}
-                />
-                <form
-                  className="case-add"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    submitTask(row.id)
-                  }}
-                >
-                  <input
-                    value={drafts[row.id] ?? ''}
-                    placeholder="作業を足す"
-                    aria-label={`${row.name}に作業を足す`}
-                    onChange={(e) => setDrafts((prev) => ({ ...prev, [row.id]: e.target.value }))}
-                  />
-                  <Button type="submit" variant="quiet">
-                    足す
-                  </Button>
-                </form>
-                <Button
-                  variant="quiet"
-                  onClick={() => {
-                    if (window.confirm(`「${row.name}」と、中の作業を消しますか？`)) {
-                      removeCase(row.id)
-                    }
-                  }}
-                >
-                  削除
-                </Button>
-              </li>
-            ))}
+            {visibleCases.map((row) => {
+              const color = asCaseColor(row.color)
+              const done = Boolean(row.doneAt)
+              return (
+                <li key={row.id} className={done ? 'case-card done' : 'case-card'}>
+                  <div className="case-card-head">
+                    <button
+                      type="button"
+                      className="case-swatch"
+                      style={{ background: color }}
+                      aria-label="案件の色を変える"
+                      onClick={() => setCaseColor(row.id, cycleCaseColor(color))}
+                    />
+                    <input
+                      className="case-name"
+                      defaultValue={row.name}
+                      key={row.name}
+                      aria-label="案件名"
+                      onBlur={(e) => renameCase(row.id, e.target.value)}
+                    />
+                    {done ? (
+                      <Button variant="quiet" onClick={() => reopenCase(row.id)}>
+                        戻す
+                      </Button>
+                    ) : (
+                      <Button variant="quiet" onClick={() => completeCase(row.id)}>
+                        完了
+                      </Button>
+                    )}
+                  </div>
+                  {done ? null : (
+                    <form
+                      className="case-add"
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        submitTask(row.id)
+                      }}
+                    >
+                      <input
+                        value={drafts[row.id] ?? ''}
+                        placeholder="作業を追加"
+                        aria-label={`${row.name}に作業を追加`}
+                        onChange={(e) => setDrafts((prev) => ({ ...prev, [row.id]: e.target.value }))}
+                      />
+                      <Button type="submit" variant="quiet">
+                        追加
+                      </Button>
+                    </form>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         )}
         <form
@@ -236,16 +234,18 @@ export function OrganizePage() {
             submitCase()
           }}
         >
-          <ColorPicks value={colorForNew} onChange={setNewColor} label="新しい案件の色" />
-          <input
-            value={caseName}
-            placeholder="新しい案件名"
-            aria-label="新しい案件名"
-            onChange={(e) => setCaseName(e.target.value)}
-          />
-          <Button type="submit" variant="primary">
-            案件を足す
-          </Button>
+          <p className="field-label">新しい案件</p>
+          <div className="case-new-row">
+            <input
+              value={caseName}
+              placeholder="案件名"
+              aria-label="新しい案件名"
+              onChange={(e) => setCaseName(e.target.value)}
+            />
+            <Button type="submit" variant="primary">
+              追加
+            </Button>
+          </div>
         </form>
       </section>
     </div>

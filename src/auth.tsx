@@ -11,7 +11,9 @@ import {
 import {
   clearSession,
   ensureGoogleSso,
+  getAccessToken,
   googleClientId,
+  hasGoogleSession,
   loadSession,
   onGoogleCredential,
   promptGoogleSso,
@@ -29,7 +31,9 @@ type Auth = {
   status: AuthStatus
   ready: boolean
   error: string
+  driveReady: boolean
   signIn: () => Promise<boolean>
+  connectDrive: () => Promise<boolean>
   signOut: () => Promise<void>
 }
 
@@ -39,6 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [status, setStatus] = useState<AuthStatus>('idle')
   const [error, setError] = useState('')
+  const [driveReady, setDriveReady] = useState(false)
   const alive = useRef(true)
 
   useEffect(() => {
@@ -52,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const next = await signInFromCredential(credential)
           if (!alive.current) return
           setUser(next)
+          setDriveReady(hasGoogleSession())
           setError('')
         } catch (caught) {
           if (!alive.current) return
@@ -64,15 +70,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     void (async () => {
       const saved = loadSession()
-      if (saved && googleClientId()) {
-        try {
-          const next = await googleSignIn(false)
-          if (alive.current) {
-            setUser(next)
-            setError('')
+      if (saved) {
+        if (alive.current) setUser(saved)
+        if (googleClientId()) {
+          try {
+            const next = await googleSignIn(false)
+            if (alive.current) {
+              setUser(next)
+              setDriveReady(hasGoogleSession())
+              setError('')
+            }
+          } catch {
+            if (alive.current) setDriveReady(false)
           }
-        } catch {
-          if (alive.current) setUser(null)
         }
       }
       try {
@@ -94,11 +104,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const next = await googleSignIn(true)
       setUser(next)
+      setDriveReady(hasGoogleSession())
       setStatus('ready')
       return true
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'ログインできませんでした'
       if (message !== 'ログインをキャンセルしました' && message !== 'SILENT_FAIL') setError(message)
+      setStatus('ready')
+      return false
+    }
+  }, [])
+
+  const connectDrive = useCallback(async () => {
+    setError('')
+    setStatus('working')
+    try {
+      await getAccessToken(true)
+      setDriveReady(hasGoogleSession())
+      setStatus('ready')
+      return hasGoogleSession()
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'ドライブに接続できませんでした'
+      if (message !== 'ログインをキャンセルしました' && message !== 'SILENT_FAIL') setError(message)
+      setDriveReady(false)
       setStatus('ready')
       return false
     }
@@ -110,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     forgetCloudFile()
     clearSession()
     setUser(null)
+    setDriveReady(false)
     setError('')
     setStatus('ready')
   }, [])
@@ -120,10 +149,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       ready: status === 'ready',
       error,
+      driveReady,
       signIn,
+      connectDrive,
       signOut,
     }),
-    [error, signIn, signOut, status, user],
+    [connectDrive, driveReady, error, signIn, signOut, status, user],
   )
 
   return <AuthContext value={value}>{children}</AuthContext>

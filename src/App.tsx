@@ -20,7 +20,7 @@ const LABELS: Record<AppPage, string> = {
   today: '今日',
   review: 'まとめ',
   history: '履歴',
-  organize: '整理',
+  organize: 'TODO',
 }
 
 const SYNC_LABEL = {
@@ -46,7 +46,7 @@ function parseHash(): { page: Page; date: string } {
 function AppShell() {
   const [{ page, date }, setRoute] = useState(parseHash)
   const today = dateParts(todayISO())
-  const { user, signOut } = useAuth()
+  const { user, signOut, driveReady, connectDrive, error } = useAuth()
   const { syncStatus, flushCloud } = useStore()
 
   useEffect(() => {
@@ -122,7 +122,15 @@ function AppShell() {
             {user ? (
               <div className="rail-account">
                 <p className="rail-account-email">{user.email}</p>
-                <p className="muted">{SYNC_LABEL[syncStatus]}</p>
+                <p className="muted">
+                  {driveReady ? SYNC_LABEL[syncStatus] : 'この端末（未同期）'}
+                </p>
+                {driveReady ? null : (
+                  <Button variant="quiet" onClick={() => void connectDrive()}>
+                    ドライブとつなぐ
+                  </Button>
+                )}
+                {error ? <p className="account-error">{error}</p> : null}
                 <Button
                   variant="quiet"
                   onClick={async () => {

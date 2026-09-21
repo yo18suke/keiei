@@ -39,6 +39,8 @@ async function findFileId() {
   const query = encodeURIComponent(`name='${FILE_NAME}'`)
   const res = await googleFetch(
     `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&fields=files(id,name)&pageSize=1`,
+    {},
+    { interactive: false },
   )
   if (!res.ok) throw new Error(await readGoogleError(res, '保存場所を探せませんでした'))
   const body = (await res.json()) as { files?: Array<{ id?: string }> }
@@ -67,7 +69,7 @@ function asPayload(raw: unknown): CloudPayload | null {
 export async function loadCloud(): Promise<CloudPayload | null> {
   const id = await findFileId()
   if (!id) return null
-  const res = await googleFetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`)
+  const res = await googleFetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, {}, { interactive: false })
   if (res.status === 404) {
     rememberFileId('')
     return null
@@ -88,11 +90,15 @@ async function createCloud(payload: CloudPayload) {
   }
   const boundary = `rp_${crypto.randomUUID()}`
   const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`
-  const res = await googleFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-    method: 'POST',
-    headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
-    body,
-  })
+  const res = await googleFetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body,
+    },
+    { interactive: false },
+  )
   if (!res.ok) throw new Error(await readGoogleError(res, 'クラウドへ保存できませんでした'))
   const created = (await res.json()) as { id?: string }
   if (!created.id) throw new Error('クラウドへ保存できませんでした')
@@ -106,11 +112,15 @@ export async function saveCloud(state: State, updatedAt = Date.now()) {
     await createCloud(payload)
     return updatedAt
   }
-  const res = await googleFetch(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
+  const res = await googleFetch(
+    `https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+    { interactive: false },
+  )
   if (res.status === 404) {
     rememberFileId('')
     await createCloud(payload)

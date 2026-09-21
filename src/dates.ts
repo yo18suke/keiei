@@ -101,6 +101,22 @@ export function monthDates(year: number, month: number) {
   return dates
 }
 
+export const WEEKDAYS_MON = ['月', '火', '水', '木', '金', '土', '日'] as const
+
+export function monthGrid(year: number, month: number) {
+  const first = toISODate(new Date(year, month - 1, 1))
+  const last = toISODate(new Date(year, month, 0))
+  const start = weekStart(first)
+  const end = addDays(weekStart(last), 6)
+  const dates: string[] = []
+  let cursor = start
+  while (cursor <= end) {
+    dates.push(cursor)
+    cursor = addDays(cursor, 1)
+  }
+  return dates
+}
+
 export function formatMonth(year: number, month: number): string {
   return `${year}年${month}月`
 }

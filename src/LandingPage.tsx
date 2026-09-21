@@ -14,8 +14,8 @@ const FEATURES = [
   },
   {
     id: 'organize',
-    kicker: '整理',
-    title: '仕事の棚を動かす',
+    kicker: 'TODO',
+    title: '曜日にやることを置く',
     body: '案件とカードを、進捗中・未完了・完了へ置く。',
     figure: 'organize',
   },
@@ -69,7 +69,7 @@ const WELLS = [
   { id: 'today', label: '今日' },
   { id: 'review', label: 'まとめ' },
   { id: 'history', label: '履歴' },
-  { id: 'organize', label: '整理' },
+  { id: 'organize', label: 'TODO' },
 ] as const
 
 export function LandingPage({

@@ -10,6 +10,8 @@ export function Field({
   rows = 3,
   action,
   live,
+  tone,
+  bare,
 }: {
   label: string
   hint?: string
@@ -20,13 +22,20 @@ export function Field({
   rows?: number
   action?: ReactNode
   live?: string
+  tone?: 'coral' | 'indigo' | 'green' | 'gold'
+  bare?: boolean
 }) {
+  const cls = ['field', tone ? `field-card tone-${tone}` : '', bare ? 'field-bare' : '']
+    .filter(Boolean)
+    .join(' ')
   return (
-    <div className="field">
-      <div className="field-head">
-        <span className="field-label">{label}</span>
-        {action}
-      </div>
+    <div className={cls}>
+      {bare ? null : (
+        <div className="field-head">
+          <span className="field-label">{label}</span>
+          {action}
+        </div>
+      )}
       {multiline ? (
         <textarea
           rows={rows}

@@ -9,13 +9,18 @@ const SCOPES = [
 ].join(' ')
 
 type TokenClient = {
-  requestAccessToken: (override?: { prompt?: string }) => void
+  requestAccessToken: (override?: { prompt?: string; hint?: string }) => void
 }
 
 type TokenResponse = {
   access_token?: string
   expires_in?: number
   error?: string
+}
+
+type TokenClientError = {
+  type?: string
+  message?: string
 }
 
 type CredentialResponse = {
@@ -66,8 +71,9 @@ declare global {
           initTokenClient: (config: {
             client_id: string
             scope: string
+            hint?: string
             callback: (response: TokenResponse) => void
-            error_callback?: () => void
+            error_callback?: (error?: TokenClientError) => void
           }) => TokenClient
           revoke?: (token: string, done?: () => void) => void
         }
@@ -295,13 +301,35 @@ export function renderGoogleSignInButton(parent: HTMLElement, width = 320) {
   return parent.childElementCount > 0
 }
 
+function inEmbeddedFrame() {
+  try {
+    return window.self !== window.top
+  } catch {
+    return true
+  }
+}
+
+export function googleLoginNeedsNewTab() {
+  return inEmbeddedFrame()
+}
+
+function tokenPopupMessage() {
+  if (inEmbeddedFrame()) {
+    return 'この埋め込みプレビューでは Google のログイン窓を開けません。アドレスを新しいタブで開いてください。'
+  }
+  return 'ログイン窓を開けませんでした。ブラウザのポップアップ許可を確認してください。'
+}
+
 function requestToken(clientId: string, interactive: boolean) {
   return new Promise<string>((resolve, reject) => {
     if (!window.google?.accounts.oauth2) {
       reject(new Error('Google のログインを読み込めませんでした'))
       return
     }
+    let settled = false
     const finish = (error?: Error, token?: string) => {
+      if (settled) return
+      settled = true
       window.clearTimeout(timer)
       if (error) reject(error)
       else if (token) resolve(token)
@@ -315,9 +343,11 @@ function requestToken(clientId: string, interactive: boolean) {
         ),
       )
     }, interactive ? 20000 : 8000)
+    const hint = loadSession()?.email
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope: SCOPES,
+      hint,
       callback: (response) => {
         if (response.error || !response.access_token) {
           finish(
@@ -336,17 +366,19 @@ function requestToken(clientId: string, interactive: boolean) {
         tokenExpiresAt = Date.now() + life
         finish(undefined, accessToken)
       },
-      error_callback: () => {
-        finish(
-          new Error(
-            interactive
-              ? 'ログイン窓を開けませんでした。ブラウザのポップアップ許可を確認してください。'
-              : 'SILENT_FAIL',
-          ),
-        )
+      error_callback: (error) => {
+        if (!interactive) {
+          finish(new Error('SILENT_FAIL'))
+          return
+        }
+        if (error?.type === 'popup_closed') {
+          finish(new Error('ログインをキャンセルしました'))
+          return
+        }
+        finish(new Error(tokenPopupMessage()))
       },
     })
-    client.requestAccessToken(interactive ? undefined : { prompt: '' })
+    client.requestAccessToken(interactive ? { hint } : { prompt: '', hint })
   })
 }
 
@@ -377,11 +409,9 @@ export async function signInFromCredential(credential: string): Promise<AuthUser
   const user = userFromCredential(credential)
   saveSession(user)
   try {
-    await getAccessToken(true)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : ''
-    if (message === 'ログインをキャンセルしました' || message === 'SILENT_FAIL') return user
-    throw error
+    await getAccessToken(false)
+  } catch {
+    /* 公式ボタンのあとにポップアップを出すとブラウザが止める。身分は残し、ドライブは後でつなぐ。 */
   }
   return user
 }
@@ -406,15 +436,21 @@ export async function signOut() {
   }
 }
 
-export async function googleFetch(url: string, init: RequestInit = {}, retry = true) {
-  const token = await getAccessToken(true)
+export async function googleFetch(
+  url: string,
+  init: RequestInit = {},
+  options: { retry?: boolean; interactive?: boolean } = {},
+) {
+  const retry = options.retry !== false
+  const interactive = options.interactive !== false
+  const token = await getAccessToken(interactive)
   const headers = new Headers(init.headers)
   headers.set('Authorization', `Bearer ${token}`)
   const res = await fetch(url, { ...init, headers })
   if (res.status === 401 && retry) {
     accessToken = ''
     tokenExpiresAt = 0
-    return googleFetch(url, init, false)
+    return googleFetch(url, init, { retry: false, interactive })
   }
   return res
 }

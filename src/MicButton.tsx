@@ -36,6 +36,7 @@ export function SpeakableField({
   multiline?: boolean
   placeholder?: string
   rows?: number
+  tone?: 'coral' | 'indigo' | 'green' | 'gold'
   onAppend: (text: string) => void
 }) {
   const dictation = useDictation(onAppend)

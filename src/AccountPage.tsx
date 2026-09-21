@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { asset } from './assets'
 import { useAuth } from './auth'
 import { GoogleSignInButton } from './GoogleSignInButton'
-import { googleClientId, isLikelyClientId, saveGoogleClientId } from './googleAuth'
+import { googleClientId, googleLoginNeedsNewTab, isLikelyClientId, saveGoogleClientId } from './googleAuth'
 import { useStore } from './store'
 import { Button } from './ui'
 
@@ -13,7 +13,7 @@ export function AccountPage({
   onEnter: () => void
   onBack: () => void
 }) {
-  const { user, status, signOut } = useAuth()
+  const { user, status, signOut, driveReady, connectDrive, error } = useAuth()
   const { flushCloud } = useStore()
   const [clientId, setClientId] = useState(googleClientId)
   const [draftId, setDraftId] = useState(clientId)
@@ -55,7 +55,18 @@ export function AccountPage({
           <div className="account-card">
             <p className="field-label">ログイン中</p>
             <p className="account-email">{user.email}</p>
+            {driveReady ? (
+              <p className="muted">Google ドライブとつながっています。</p>
+            ) : (
+              <p className="muted">いまはこの端末だけです。他の端末と揃えるときはドライブをつないでください。</p>
+            )}
+            {error ? <p className="account-error">{error}</p> : null}
             <div className="row-actions">
+              {driveReady ? null : (
+                <Button variant="primary" disabled={working} onClick={() => void connectDrive()}>
+                  {working ? '接続しています…' : 'ドライブとつなぐ'}
+                </Button>
+              )}
               <Button variant="primary" onClick={onEnter}>
                 アプリを開く
               </Button>
@@ -93,6 +104,21 @@ export function AccountPage({
               </form>
             ) : (
               <div className="account-actions">
+                {googleLoginNeedsNewTab() ? (
+                  <>
+                    <p className="muted">
+                      この埋め込みプレビューでは Google のログイン窓が開きません。アドレスを新しいタブで開いてください。
+                    </p>
+                    <Button
+                      variant="quiet"
+                      onClick={() => {
+                        window.open(window.location.href, '_blank', 'noopener')
+                      }}
+                    >
+                      新しいタブで開く
+                    </Button>
+                  </>
+                ) : null}
                 <GoogleSignInButton key={clientId} onSignedIn={onEnter} />
                 <Button variant="quiet" onClick={onEnter}>
                   この端末だけで続ける

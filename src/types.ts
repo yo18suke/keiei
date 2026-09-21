@@ -19,23 +19,29 @@ export type WorkCase = {
   id: string
   name: string
   color: string
+  doneAt?: string
 }
 
-export const CASE_COLORS = [
-  '#f06a6a',
-  '#796eff',
-  '#25aa61',
-  '#f4b942',
-  '#2b9eb3',
-  '#e07a5f',
-  '#c45cce',
-  '#6d6e6f',
-] as const
+export const CASE_COLORS = ['#f06a6a', '#796eff', '#25aa61', '#f4b942', '#2b9eb3'] as const
+
+const LEGACY_CASE_COLORS: Record<string, string> = {
+  '#e07a5f': '#f06a6a',
+  '#c45cce': '#796eff',
+  '#6d6e6f': '#2b9eb3',
+}
+
+export const CASE_COLOR_LABEL: Record<(typeof CASE_COLORS)[number], string> = {
+  '#f06a6a': 'コーラル',
+  '#796eff': 'インディゴ',
+  '#25aa61': 'グリーン',
+  '#f4b942': 'ゴールド',
+  '#2b9eb3': 'ティール',
+}
 
 export function asCaseColor(raw: unknown, fallback: string = CASE_COLORS[0]) {
-  return typeof raw === 'string' && (CASE_COLORS as readonly string[]).includes(raw)
-    ? raw
-    : fallback
+  if (typeof raw !== 'string') return fallback
+  const mapped = LEGACY_CASE_COLORS[raw] ?? raw
+  return (CASE_COLORS as readonly string[]).includes(mapped) ? mapped : fallback
 }
 
 export function nextCaseColor(cases: WorkCase[]) {
