@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react'
 import { HistoryPage } from './HistoryPage'
+import { LandingPage } from './LandingPage'
 import { Opening } from './Opening'
 import { OrganizePage } from './OrganizePage'
 import { ReviewPage } from './ReviewPage'
 import { StoreProvider } from './store'
 import { TodayPage } from './TodayPage'
+import { asset } from './assets'
 import { dateParts, todayISO } from './dates'
 
 const PAGES = ['today', 'review', 'history', 'organize'] as const
-type Page = (typeof PAGES)[number]
+type AppPage = (typeof PAGES)[number]
+type Page = AppPage | 'landing'
 
-const LABELS: Record<Page, string> = {
+const LABELS: Record<AppPage, string> = {
   today: '今日',
   review: 'まとめ',
   history: '履歴',
@@ -21,11 +24,13 @@ function parseHash(): { page: Page; date: string } {
   const h = window.location.hash.replace(/^#\/?/, '')
   const todayMatch = h.match(/^today\/(\d{4}-\d{2}-\d{2})$/)
   if (todayMatch) return { page: 'today', date: todayMatch[1] }
-  if (h === 'history' || h === 'review' || h === 'organize') return { page: h, date: todayISO() }
-  return { page: 'today', date: todayISO() }
+  if (h === 'today' || h === 'history' || h === 'review' || h === 'organize') {
+    return { page: h, date: todayISO() }
+  }
+  return { page: 'landing', date: todayISO() }
 }
 
-function Shell() {
+function AppShell() {
   const [{ page, date }, setRoute] = useState(parseHash)
   const today = dateParts(todayISO())
 
@@ -39,7 +44,7 @@ function Shell() {
     }
   }, [])
 
-  function go(next: Page, nextDate = todayISO()) {
+  function go(next: AppPage, nextDate = todayISO()) {
     const url =
       next === 'today' && nextDate !== todayISO() ? `#today/${nextDate}` : `#${next}`
     setRoute({ page: next, date: next === 'today' ? nextDate : todayISO() })
@@ -48,57 +53,63 @@ function Shell() {
     }
   }
 
-  return (
-    <div className="app">
-      <aside className="rail">
-        <div className="brand">
-          <img className="logo" src="/logo.svg" width="32" height="32" alt="" />
-          <div>
-            <p className="wordmark">リフレクションパレット</p>
-            <p className="tag">日々の振り返り</p>
-          </div>
-        </div>
-        <nav className="nav" aria-label="主要">
-          {PAGES.map((p) => (
-            <a
-              key={p}
-              href={`#${p}`}
-              className={page === p ? 'nav-link on' : 'nav-link'}
-              onClick={(e) => {
-                e.preventDefault()
-                go(p, p === 'today' ? todayISO() : date)
-              }}
-            >
-              <i className={`nav-dot ${p}`} aria-hidden />
-              {LABELS[p]}
-            </a>
-          ))}
-        </nav>
-        <p className="rail-date">
-          {today.month}/{today.day}
-          <span> {today.weekday}</span>
-        </p>
-      </aside>
+  if (page === 'landing') {
+    return <LandingPage onStart={() => go('today')} />
+  }
 
-      <div className="canvas">
-        <main>
-          {page === 'today' ? (
-            <TodayPage date={date} onDate={(d) => go('today', d)} onOrganize={() => go('organize')} />
-          ) : null}
-          {page === 'review' ? <ReviewPage onOpenDay={(d) => go('today', d)} /> : null}
-          {page === 'history' ? <HistoryPage onOpenDay={(d) => go('today', d)} /> : null}
-          {page === 'organize' ? <OrganizePage /> : null}
-        </main>
+  return (
+    <>
+      <Opening />
+      <div className="app">
+        <aside className="rail">
+          <div className="brand">
+            <img className="logo" src={asset('logo.svg')} width="32" height="32" alt="" />
+            <div>
+              <p className="wordmark">リフレクションパレット</p>
+              <p className="tag">日々の振り返り</p>
+            </div>
+          </div>
+          <nav className="nav" aria-label="主要">
+            {PAGES.map((p) => (
+              <a
+                key={p}
+                href={`#${p}`}
+                className={page === p ? 'nav-link on' : 'nav-link'}
+                onClick={(e) => {
+                  e.preventDefault()
+                  go(p, p === 'today' ? todayISO() : date)
+                }}
+              >
+                <i className={`nav-dot ${p}`} aria-hidden />
+                {LABELS[p]}
+              </a>
+            ))}
+          </nav>
+          <p className="rail-date">
+            {today.month}/{today.day}
+            <span> {today.weekday}</span>
+          </p>
+        </aside>
+
+        <div className="canvas">
+          <main>
+            {page === 'today' ? (
+              <TodayPage date={date} onDate={(d) => go('today', d)} onOrganize={() => go('organize')} />
+            ) : null}
+            {page === 'review' ? <ReviewPage onOpenDay={(d) => go('today', d)} /> : null}
+            {page === 'history' ? <HistoryPage onOpenDay={(d) => go('today', d)} /> : null}
+            {page === 'organize' ? <OrganizePage /> : null}
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
 export default function App() {
   return (
     <StoreProvider>
-      <Opening />
-      <Shell />
+      <AppShell />
     </StoreProvider>
   )
 }

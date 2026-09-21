@@ -1,14 +1,39 @@
 import { useEffect, useState } from 'react'
 
+const KEY = 'rp.opening'
+
+function alreadyPlayed() {
+  try {
+    return sessionStorage.getItem(KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function markPlayed() {
+  try {
+    sessionStorage.setItem(KEY, '1')
+  } catch {
+    /* ignore */
+  }
+}
+
 export function Opening() {
-  const [phase, setPhase] = useState<'play' | 'leave' | 'off'>('play')
+  const [phase, setPhase] = useState<'play' | 'leave' | 'off'>(() =>
+    alreadyPlayed() ? 'off' : 'play',
+  )
 
   useEffect(() => {
+    if (alreadyPlayed()) {
+      setPhase('off')
+      return
+    }
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const leaveAt = reduced ? 120 : 1500
-    const offAt = reduced ? 280 : 2000
-    const leave = window.setTimeout(() => setPhase('leave'), leaveAt)
-    const off = window.setTimeout(() => setPhase('off'), offAt)
+    const leave = window.setTimeout(() => setPhase('leave'), reduced ? 120 : 1500)
+    const off = window.setTimeout(() => {
+      markPlayed()
+      setPhase('off')
+    }, reduced ? 280 : 2000)
     return () => {
       window.clearTimeout(leave)
       window.clearTimeout(off)

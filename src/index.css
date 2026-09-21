@@ -228,12 +228,14 @@ a {
 .canvas {
   background: var(--canvas);
   min-height: 100vh;
+  min-width: 0;
 }
 
 main {
   width: min(760px, calc(100% - 64px));
   margin: 0 auto;
   padding: 28px 0 80px;
+  min-width: 0;
 }
 
 .page-head,
@@ -459,6 +461,16 @@ main {
   border-top: 1px solid var(--line);
 }
 
+.export-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.google-setup {
+  display: grid;
+  gap: 8px;
+}
+
 input,
 textarea,
 select {
@@ -596,11 +608,9 @@ select:focus {
 .board {
   --lane-count: 2;
   display: grid;
-  grid-template-columns: repeat(var(--lane-count), minmax(220px, 1fr));
+  grid-template-columns: repeat(var(--lane-count), minmax(0, 1fr));
   gap: 12px;
-  overflow-x: auto;
   margin-bottom: 20px;
-  padding-bottom: 4px;
 }
 
 .lane {
@@ -608,8 +618,8 @@ select:focus {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 12px;
-  min-height: 220px;
-  min-width: 220px;
+  min-height: 160px;
+  min-width: 0;
 }
 
 .lane-progress {
@@ -712,22 +722,23 @@ select:focus {
   align-items: center;
 }
 
-.case-add {
+.case-add,
+.case-new {
   display: flex;
-  gap: 4px;
+  gap: 8px;
   align-items: center;
+  min-width: 0;
 }
 
 .case-new {
-  display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
 }
 
 .case-new input,
 .case-add input {
-  flex: 1 1 160px;
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
 }
 
 .history-week {
@@ -851,12 +862,32 @@ select:focus {
     grid-template-columns: repeat(4, 1fr);
   }
 
+  .board {
+    grid-template-columns: 1fr;
+  }
+
+  .lane {
+    min-height: 0;
+  }
+
   .case-row {
     grid-template-columns: 8px minmax(0, 1fr) auto;
   }
 
   .case-add {
     grid-column: 1 / -1;
+  }
+
+  .case-new {
+    flex-wrap: nowrap;
+  }
+
+  .card-moves {
+    gap: 4px;
+  }
+
+  .work-card {
+    cursor: default;
   }
 
   .nav-link {
@@ -895,6 +926,7 @@ select:focus {
   justify-items: center;
   gap: 14px;
   background: #fffdf8;
+  pointer-events: none;
   animation: opening-fade-in 0.35s ease both;
 }
 
@@ -1004,5 +1036,368 @@ select:focus {
 
   .opening.leave {
     opacity: 0;
+  }
+}
+
+.lp {
+  min-height: 100vh;
+  background: var(--canvas);
+}
+
+.lp-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background:
+    linear-gradient(
+      160deg,
+      rgba(240, 106, 106, 0.14) 0%,
+      rgba(121, 110, 255, 0.08) 36%,
+      rgba(37, 170, 97, 0.08) 68%,
+      rgba(244, 185, 66, 0.16) 100%
+    ),
+    var(--sidebar);
+  border-bottom: 1px solid var(--sidebar-line);
+}
+
+.lp-hero {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(
+      160deg,
+      rgba(240, 106, 106, 0.14) 0%,
+      rgba(121, 110, 255, 0.08) 36%,
+      rgba(37, 170, 97, 0.08) 68%,
+      rgba(244, 185, 66, 0.16) 100%
+    ),
+    var(--sidebar);
+  border-bottom: 1px solid var(--sidebar-line);
+  padding: 56px max(24px, calc((100% - 920px) / 2)) 64px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  align-items: center;
+  gap: 36px;
+}
+
+.lp-hero::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--accent) 0%,
+    var(--indigo) 33%,
+    var(--green) 66%,
+    var(--gold) 100%
+  );
+  z-index: 2;
+}
+
+.lp-hero-copy {
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+  position: relative;
+  z-index: 1;
+}
+
+.lp-hero h1 {
+  font-size: 2rem;
+}
+
+.lp-lead {
+  font-size: 1.05rem;
+  max-width: 28em;
+}
+
+.lp-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(18px);
+  pointer-events: none;
+}
+
+.lp-blob.coral {
+  width: 180px;
+  height: 180px;
+  background: rgba(240, 106, 106, 0.32);
+  top: -48px;
+  right: 18%;
+}
+
+.lp-blob.indigo {
+  width: 140px;
+  height: 140px;
+  background: rgba(121, 110, 255, 0.28);
+  bottom: -36px;
+  right: 8%;
+}
+
+.lp-blob.green {
+  width: 110px;
+  height: 110px;
+  background: rgba(37, 170, 97, 0.22);
+  top: 28%;
+  left: 42%;
+}
+
+.lp-blob.gold {
+  width: 90px;
+  height: 90px;
+  background: rgba(244, 185, 66, 0.36);
+  bottom: 12%;
+  left: 8%;
+}
+
+.lp-hero-art {
+  position: relative;
+  z-index: 1;
+}
+
+.lp-palette {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 22px;
+  background: #1e1f21;
+  box-shadow: 0 18px 40px rgba(30, 31, 33, 0.16);
+}
+
+.lp-well {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 18px 8px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.lp-well .nav-dot {
+  width: 18px;
+  height: 18px;
+}
+
+.lp-main {
+  width: min(920px, calc(100% - 48px));
+  padding: 48px 0 32px;
+}
+
+.lp-block + .lp-block {
+  margin-top: 48px;
+}
+
+.lp-block-head {
+  margin-bottom: 16px;
+}
+
+.lp-block-head h2 {
+  font-size: 1.2rem;
+}
+
+.lp-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.lp-cards-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lp-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.lp-card h3 {
+  font-size: 0.95rem;
+}
+
+.lp-card .kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lp-draw {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.lp-draw-screen {
+  margin: -16px -16px 4px;
+  width: calc(100% + 32px);
+}
+
+.lp-draw-icon {
+  width: 48px;
+  height: 48px;
+}
+
+.lp-card-problem.scatter {
+  background: linear-gradient(180deg, #fff6f0 0%, #fff 48%);
+}
+
+.lp-card-problem.fade {
+  background: linear-gradient(180deg, #f3f1ff 0%, #fff 48%);
+}
+
+.lp-card-problem.hidden {
+  background: linear-gradient(180deg, #fff8e6 0%, #fff 48%);
+}
+
+.lp-card-feature.today {
+  background: linear-gradient(180deg, #fff1f1 0%, #fff 42%);
+}
+
+.lp-card-feature.organize {
+  background: linear-gradient(180deg, #fff8e6 0%, #fff 42%);
+}
+
+.lp-card-feature.review {
+  background: linear-gradient(180deg, #f3f1ff 0%, #fff 42%);
+}
+
+.lp-card-feature.history {
+  background: linear-gradient(180deg, #eaf8ef 0%, #fff 42%);
+}
+
+.lp-card-extra {
+  align-content: start;
+}
+
+.lp-steps {
+  display: grid;
+  gap: 0;
+  position: relative;
+}
+
+.lp-steps::before {
+  content: '';
+  position: absolute;
+  left: 31px;
+  top: 28px;
+  bottom: 28px;
+  width: 2px;
+  background: linear-gradient(180deg, var(--accent), var(--indigo), var(--gold));
+}
+
+.lp-step {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px 14px 14px;
+  position: relative;
+}
+
+.lp-step-n {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  position: relative;
+  z-index: 1;
+}
+
+.lp-step.coral .lp-step-n {
+  background: var(--accent);
+}
+
+.lp-step.indigo .lp-step-n {
+  background: var(--indigo);
+}
+
+.lp-step.gold .lp-step-n {
+  background: var(--gold);
+  color: #1e1f21;
+}
+
+.lp-step h3 {
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
+
+.lp-foot {
+  width: min(920px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 32px 0 64px;
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.lp-foot-mark {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: #1e1f21;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  place-items: center;
+  padding: 10px;
+  gap: 5px;
+}
+
+.lp-foot-mark .opening-dot {
+  width: 10px;
+  height: 10px;
+  animation: none;
+}
+
+@media (max-width: 840px) {
+  .lp-hero {
+    grid-template-columns: 1fr;
+    padding: 28px 20px 36px;
+    gap: 24px;
+  }
+
+  .lp-hero h1 {
+    font-size: 1.6rem;
+  }
+
+  .lp-blob.green,
+  .lp-blob.indigo {
+    display: none;
+  }
+
+  .lp-hero-art {
+    width: min(100%, 280px);
+    justify-self: center;
+  }
+
+  .lp-main,
+  .lp-foot {
+    width: calc(100% - 40px);
+  }
+
+  .lp-cards,
+  .lp-cards-4 {
+    grid-template-columns: 1fr;
   }
 }

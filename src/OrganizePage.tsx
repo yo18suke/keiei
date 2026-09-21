@@ -51,7 +51,7 @@ export function OrganizePage() {
   }
 
   return (
-    <div className="page">
+    <div className="page page-organize">
       <div className="page-head">
         <div>
           <p className="kicker">朝と夜に、仕事の棚を整える</p>

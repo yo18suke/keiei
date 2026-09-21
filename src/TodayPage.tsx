@@ -99,9 +99,9 @@ export function TodayPage({
 
       <DayWork date={date} onOrganize={onOrganize} />
 
-      <Section kicker="② · YWT" title="整理する" variant="night">
+      <Section kicker="②" title="整理する" variant="night">
         <Field
-          label="Y · やったこと"
+          label="やったこと"
           hint="事実だけ。短くていい。"
           multiline
           value={day.y}
@@ -114,7 +114,7 @@ export function TodayPage({
           onChange={(v) => patchDay(date, { y: v, skipped: false })}
         />
         <Field
-          label="W · 学んだこと"
+          label="学んだこと"
           hint="うまくいった理由も、外れた理由も。"
           multiline
           value={day.w}
@@ -127,7 +127,7 @@ export function TodayPage({
           onChange={(v) => patchDay(date, { w: v, skipped: false })}
         />
         <Field
-          label="T · 明日以降意識すること"
+          label="明日以降意識すること"
           hint="明日から頭に置いておくこと。"
           multiline
           value={day.t}

@@ -253,9 +253,9 @@ function WeekBlock({
               ) : (
                 <>
                   {d.note ? <p>{d.note}</p> : null}
-                  {d.y ? <p>Y {d.y}</p> : null}
-                  {d.w ? <p>W {d.w}</p> : null}
-                  {d.t ? <p>T {d.t}</p> : null}
+                  {d.y ? <p>やったこと：{d.y}</p> : null}
+                  {d.w ? <p>学んだこと：{d.w}</p> : null}
+                  {d.t ? <p>意識すること：{d.t}</p> : null}
                 </>
               )}
             </button>

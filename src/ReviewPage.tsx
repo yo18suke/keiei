@@ -145,9 +145,9 @@ function Digest({
   return (
     <div className="digest">
       <DigestCol label="メモ" lines={digest.notes} onOpenDay={onOpenDay} />
-      <DigestCol label="Y · やったこと" lines={digest.y} onOpenDay={onOpenDay} />
-      <DigestCol label="W · 学んだこと" lines={digest.w} onOpenDay={onOpenDay} />
-      <DigestCol label="T · 意識すること" lines={digest.t} onOpenDay={onOpenDay} />
+      <DigestCol label="やったこと" lines={digest.y} onOpenDay={onOpenDay} />
+      <DigestCol label="学んだこと" lines={digest.w} onOpenDay={onOpenDay} />
+      <DigestCol label="意識すること" lines={digest.t} onOpenDay={onOpenDay} />
       {digest.skipped.length ? (
         <p className="muted">
           書けなかった日：{digest.skipped.map((d) => formatShort(d)).join(' · ')}
