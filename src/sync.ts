@@ -1,0 +1,94 @@
+import { asTaskLane, emptyState, type DayRecord, type State, type WorkCase, type WorkTask } from './types'
+
+function pickText(a: string, b: string) {
+  if (!a.trim()) return b
+  if (!b.trim()) return a
+  return a.length >= b.length ? a : b
+}
+
+function mergeDay(a: DayRecord, b: DayRecord): DayRecord {
+  const note = pickText(a.note, b.note)
+  const y = pickText(a.y, b.y)
+  const w = pickText(a.w, b.w)
+  const t = pickText(a.t, b.t)
+  const hasContent = Boolean(note.trim() || y.trim() || w.trim() || t.trim())
+  return {
+    date: a.date || b.date,
+    note,
+    y,
+    w,
+    t,
+    skipped: hasContent ? false : a.skipped || b.skipped,
+  }
+}
+
+function mergeNotes(a: Record<string, string>, b: Record<string, string>) {
+  const next = { ...a }
+  for (const [key, value] of Object.entries(b)) {
+    next[key] = pickText(next[key] ?? '', value)
+  }
+  return next
+}
+
+function mergeCases(a: WorkCase[], b: WorkCase[]) {
+  const map = new Map<string, WorkCase>()
+  for (const item of [...a, ...b]) {
+    const prev = map.get(item.id)
+    if (!prev) map.set(item.id, item)
+    else map.set(item.id, { id: item.id, name: pickText(prev.name, item.name) })
+  }
+  return [...map.values()]
+}
+
+const LANE_RANK: Record<WorkTask['lane'], number> = {
+  open: 0,
+  progress: 1,
+  done: 2,
+}
+
+function mergeTasks(a: WorkTask[], b: WorkTask[]) {
+  const map = new Map<string, WorkTask>()
+  for (const item of [...a, ...b]) {
+    const task = { ...item, lane: asTaskLane(item.lane) }
+    const prev = map.get(task.id)
+    if (!prev) {
+      map.set(task.id, task)
+      continue
+    }
+    const richer = LANE_RANK[task.lane] >= LANE_RANK[prev.lane] ? task : prev
+    map.set(task.id, {
+      ...richer,
+      title: pickText(prev.title, task.title),
+      doneAt: richer.lane === 'done' ? richer.doneAt || prev.doneAt || task.doneAt : undefined,
+    })
+  }
+  return [...map.values()]
+}
+
+export function mergeStates(a: State, b: State): State {
+  const days: State['days'] = { ...a.days }
+  for (const [date, day] of Object.entries(b.days)) {
+    days[date] = days[date] ? mergeDay(days[date], day) : day
+  }
+  return {
+    days,
+    weekNotes: mergeNotes(a.weekNotes, b.weekNotes),
+    monthNotes: mergeNotes(a.monthNotes, b.monthNotes),
+    cases: mergeCases(a.cases, b.cases),
+    tasks: mergeTasks(a.tasks, b.tasks),
+  }
+}
+
+export function isEmptyState(state: State) {
+  return (
+    Object.keys(state.days).length === 0 &&
+    Object.keys(state.weekNotes).length === 0 &&
+    Object.keys(state.monthNotes).length === 0 &&
+    state.cases.length === 0 &&
+    state.tasks.length === 0
+  )
+}
+
+export function cloneState(state: State): State {
+  return structuredClone(state ?? emptyState())
+}

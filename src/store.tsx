@@ -2,11 +2,16 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
+import { useAuth } from './auth'
+import { loadCloud, saveCloud } from './cloud'
 import { emptyDay } from './selectors'
+import { mergeStates } from './sync'
 import { todayISO } from './dates'
 import {
   emptyState,
@@ -92,7 +97,7 @@ function migrateDay(raw: Partial<DayRecord> & { date: string }): DayRecord {
   }
 }
 
-function migrateState(parsed: Partial<State> & Record<string, unknown>): State {
+export function migrateState(parsed: Partial<State> & Record<string, unknown>): State {
   const days: State['days'] = {}
   for (const [date, day] of Object.entries(parsed.days ?? {})) {
     days[date] = migrateDay({ ...day, date })
@@ -136,8 +141,11 @@ function persist(state: State) {
   )
 }
 
+type SyncStatus = 'local' | 'saving' | 'saved' | 'error'
+
 type Store = {
   state: State
+  syncStatus: SyncStatus
   patchDay: (date: string, patch: Partial<Omit<DayRecord, 'date'>>) => void
   patchWeekNote: (week: string, note: string) => void
   patchMonthNote: (key: string, note: string) => void
@@ -149,30 +157,138 @@ type Store = {
   moveTask: (id: string, lane: TaskLane) => void
   removeTask: (id: string) => void
   replaceArchive: (next: Partial<State>) => void
+  flushCloud: () => Promise<void>
 }
 
 const StoreContext = createContext<Store | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth()
   const [state, setState] = useState<State>(load)
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('local')
+  const userRef = useRef(user)
+  const stateRef = useRef(state)
+  const lastPush = useRef(0)
+  const saveTimer = useRef(0)
 
-  const commit = useCallback((recipe: (draft: State) => void) => {
-    setState((prev) => {
-      const next = structuredClone(prev)
-      if (!next.weekNotes) next.weekNotes = {}
-      if (!next.monthNotes) next.monthNotes = {}
-      if (!next.cases) next.cases = []
-      if (!next.tasks) next.tasks = []
-      next.tasks = next.tasks.map((task) => ({ ...task, lane: asTaskLane(task.lane) }))
-      recipe(next)
-      persist(next)
-      return next
-    })
+  useEffect(() => {
+    userRef.current = user
+  }, [user])
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  const pushCloud = useCallback(async (next: State) => {
+    if (!userRef.current) return
+    setSyncStatus('saving')
+    try {
+      lastPush.current = await saveCloud(next)
+      setSyncStatus('saved')
+    } catch {
+      setSyncStatus('error')
+    }
   }, [])
+
+  const schedulePush = useCallback(
+    (next: State) => {
+      if (!userRef.current) return
+      window.clearTimeout(saveTimer.current)
+      saveTimer.current = window.setTimeout(() => {
+        void pushCloud(next)
+      }, 700)
+    },
+    [pushCloud],
+  )
+
+  const commit = useCallback(
+    (recipe: (draft: State) => void) => {
+      setState((prev) => {
+        const next = structuredClone(prev)
+        if (!next.weekNotes) next.weekNotes = {}
+        if (!next.monthNotes) next.monthNotes = {}
+        if (!next.cases) next.cases = []
+        if (!next.tasks) next.tasks = []
+        next.tasks = next.tasks.map((task) => ({ ...task, lane: asTaskLane(task.lane) }))
+        recipe(next)
+        persist(next)
+        schedulePush(next)
+        return next
+      })
+    },
+    [schedulePush],
+  )
+
+  useEffect(() => {
+    if (!user) {
+      setSyncStatus('local')
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      setSyncStatus('saving')
+      try {
+        const remote = await loadCloud()
+        if (cancelled) return
+        const lastEmail = localStorage.getItem('keiei.lastEmail')
+        setState((local) => {
+          const switched = Boolean(lastEmail && lastEmail !== user.email)
+          const remoteState = remote ? migrateState(remote) : null
+          const next = switched
+            ? remoteState ?? emptyState()
+            : remoteState
+              ? mergeStates(local, remoteState)
+              : local
+          persist(next)
+          localStorage.setItem('keiei.lastEmail', user.email)
+          void saveCloud(next).then((at) => {
+            lastPush.current = at
+            if (!cancelled) setSyncStatus('saved')
+          }).catch(() => {
+            if (!cancelled) setSyncStatus('error')
+          })
+          return next
+        })
+      } catch {
+        if (!cancelled) setSyncStatus('error')
+      }
+    })()
+
+    const pull = async () => {
+      if (document.visibilityState === 'hidden' || !userRef.current) return
+      try {
+        const remote = await loadCloud()
+        if (!remote || remote.updatedAt <= lastPush.current) return
+        setState((local) => {
+          const next = mergeStates(local, migrateState(remote))
+          persist(next)
+          lastPush.current = remote.updatedAt
+          return next
+        })
+      } catch {
+        /* keep local */
+      }
+    }
+    const onFocus = () => {
+      void pull()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    const timer = window.setInterval(onFocus, 60_000)
+    return () => {
+      cancelled = true
+      window.clearTimeout(saveTimer.current)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
+      window.clearInterval(timer)
+    }
+  }, [user])
+
 
   const store = useMemo<Store>(
     () => ({
       state,
+      syncStatus,
       patchDay(date, patch) {
         commit((s) => {
           if (!s.days[date]) s.days[date] = emptyDay(date)
@@ -262,9 +378,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const merged = migrateState({ ...state, ...next })
         persist(merged)
         setState(merged)
+        schedulePush(merged)
+      },
+      async flushCloud() {
+        window.clearTimeout(saveTimer.current)
+        if (!userRef.current) return
+        await pushCloud(stateRef.current)
       },
     }),
-    [commit, state],
+    [commit, pushCloud, schedulePush, state, syncStatus],
   )
 
   return <StoreContext value={store}>{children}</StoreContext>

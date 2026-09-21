@@ -216,8 +216,13 @@ a {
   background: var(--gold);
 }
 
-.rail-date {
+.rail-foot {
   margin-top: auto;
+  display: grid;
+  gap: 8px;
+}
+
+.rail-date {
   padding: 0 8px;
 }
 
@@ -527,8 +532,13 @@ select:focus {
   border-color: var(--accent);
 }
 
-.btn-primary:hover {
-  background: var(--accent-deep);
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn-primary:disabled:hover {
+  background: var(--accent);
 }
 
 .btn-quiet,
@@ -899,6 +909,22 @@ select:focus {
     display: none;
   }
 
+  .rail-foot {
+    margin-top: 0;
+  }
+
+  .rail-account {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .rail-account .muted,
+  .rail-account-email {
+    font-size: 0.7rem;
+  }
+
   main {
     width: calc(100% - 28px);
     padding-top: 20px;
@@ -1063,6 +1089,14 @@ select:focus {
     ),
     var(--sidebar);
   border-bottom: 1px solid var(--sidebar-line);
+}
+
+.lp-bar-actions,
+.lp-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .lp-hero {
@@ -1400,4 +1434,79 @@ select:focus {
   .lp-cards-4 {
     grid-template-columns: 1fr;
   }
+}
+
+.brand-link {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rail-account {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.rail-account-email {
+  font-size: 0.72rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-account .btn {
+  justify-self: start;
+  padding: 4px 8px;
+}
+
+.account-page {
+  min-height: 100vh;
+  background: var(--canvas);
+}
+
+.account-main {
+  width: min(560px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 48px 0 80px;
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
+.account-lead {
+  max-width: 36em;
+}
+
+.account-card {
+  width: 100%;
+  margin-top: 12px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 14px;
+}
+
+.account-email {
+  font-weight: 600;
+}
+
+.account-actions {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.account-error {
+  color: var(--accent-deep);
+  font-size: 0.82rem;
 }
