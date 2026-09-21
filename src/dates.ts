@@ -82,8 +82,31 @@ export function nextMonth(year: number, month: number) {
   return { year, month: month + 1 }
 }
 
+export function prevMonth(year: number, month: number) {
+  if (month === 1) return { year: year - 1, month: 12 }
+  return { year, month: month - 1 }
+}
+
+export function monthKey(year: number, month: number) {
+  return `${year}-${String(month).padStart(2, '0')}`
+}
+
+export function monthDates(year: number, month: number) {
+  const dates: string[] = []
+  let cursor = toISODate(new Date(year, month - 1, 1))
+  while (yearOf(cursor) === year && monthOf(cursor) === month) {
+    dates.push(cursor)
+    cursor = addDays(cursor, 1)
+  }
+  return dates
+}
+
 export function formatMonth(year: number, month: number): string {
   return `${year}年${month}月`
+}
+
+export function lastNDates(n: number, end = todayISO()): string[] {
+  return Array.from({ length: n }, (_, i) => addDays(end, -(n - 1 - i)))
 }
 
 export function isEvening(now = new Date()): boolean {

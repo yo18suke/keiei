@@ -1,123 +1,61 @@
-import type { DayRecord, HorizonReview, State, TomorrowGoal } from './types'
-import { monthOf, quarterOf, todayISO, yearOf } from './dates'
+import type { DayRecord, State } from './types'
 
-export function yearGoalsAt(state: State, year: number) {
-  return state.yearGoals.filter((g) => g.year === year).slice(0, 3)
-}
-
-export function quarterGoalsAt(state: State, year: number, quarter: number) {
-  return state.quarterGoals
-    .filter((g) => g.year === year && g.quarter === quarter)
-    .slice(0, 3)
-}
-
-export function monthGoalsAt(state: State, year: number, month: number) {
-  return state.monthGoals
-    .filter((g) => g.year === year && g.month === month)
-    .slice(0, 3)
-}
-
-export function weekPlanAt(state: State, week: string) {
-  return (
-    state.weeks[week] ?? {
-      weekStart: week,
-      actions: [],
-    }
-  )
+export function emptyDay(date: string): DayRecord {
+  return { date, note: '', y: '', w: '', t: '', skipped: false }
 }
 
 export function dayAt(state: State, date: string): DayRecord {
-  return (
-    state.days[date] ?? {
-      date,
-      focusIds: [],
-      quarterGoalId: '',
-      y: '',
-      w: '',
-      t: '',
-      skipped: false,
-      tomorrow: [],
-      promiseReview: {},
-    }
-  )
-}
-
-export function reviewAt(state: State, week: string) {
-  return (
-    state.reviews[week] ?? {
-      weekStart: week,
-      why: '',
-      keep: '',
-      statuses: {},
-    }
-  )
-}
-
-export function horizonAt(
-  state: State,
-  kind: HorizonReview['kind'],
-  year: number,
-  quarter: number | null,
-) {
-  return (
-    state.horizons.find(
-      (h) => h.kind === kind && h.year === year && h.quarter === quarter,
-    ) ?? {
-      id: '',
-      kind,
-      year,
-      quarter,
-      wentWell: '',
-      wentPoorly: '',
-      workingToward: '',
-    }
-  )
-}
-
-export function filledYearGoals(state: State, year = yearOf(todayISO())) {
-  return yearGoalsAt(state, year).filter((g) => g.title.trim())
-}
-
-export function filledQuarterGoals(
-  state: State,
-  year = yearOf(todayISO()),
-  quarter = quarterOf(todayISO()),
-) {
-  return quarterGoalsAt(state, year, quarter).filter((g) => g.title.trim())
-}
-
-export function filledMonthGoals(
-  state: State,
-  year = yearOf(todayISO()),
-  month = monthOf(todayISO()),
-) {
-  return monthGoalsAt(state, year, month).filter((g) => g.title.trim())
-}
-
-export function filledActions(state: State, week: string) {
-  return weekPlanAt(state, week).actions.filter((a) => a.wish.trim())
-}
-
-export function tomorrowGoalsOf(day: DayRecord): TomorrowGoal[] {
-  const slots = day.tomorrow ?? []
-  const filled = slots.filter((g) => g.title.trim())
-  if (filled.length) return filled
-  if (day.t.trim()) {
-    return [
-      {
-        id: 'legacy',
-        title: day.t,
-        plan: '',
-        monthGoalId: '',
-        quarterGoalId: day.quarterGoalId,
-      },
-    ]
+  const raw = state.days[date]
+  if (!raw) return emptyDay(date)
+  return {
+    ...emptyDay(date),
+    ...raw,
+    note: raw.note ?? '',
+    y: raw.y ?? '',
+    w: raw.w ?? '',
+    t: raw.t ?? '',
   }
-  return []
 }
 
 export function dayHasEntry(day: DayRecord) {
   return Boolean(
-    day.y || day.w || day.skipped || tomorrowGoalsOf(day).length,
+    (day.note ?? '').trim() ||
+      (day.y ?? '').trim() ||
+      (day.w ?? '').trim() ||
+      (day.t ?? '').trim() ||
+      day.skipped,
   )
+}
+
+export type DigestLine = {
+  date: string
+  text: string
+}
+
+export type PeriodDigest = {
+  notes: DigestLine[]
+  y: DigestLine[]
+  w: DigestLine[]
+  t: DigestLine[]
+  skipped: string[]
+}
+
+export function daysOn(state: State, dates: string[]) {
+  return dates.map((date) => dayAt(state, date)).filter(dayHasEntry)
+}
+
+export function digestOf(days: DayRecord[]): PeriodDigest {
+  const notes: DigestLine[] = []
+  const y: DigestLine[] = []
+  const w: DigestLine[] = []
+  const t: DigestLine[] = []
+  const skipped: string[] = []
+  for (const day of days) {
+    if (day.skipped) skipped.push(day.date)
+    if (day.note.trim()) notes.push({ date: day.date, text: day.note })
+    if (day.y.trim()) y.push({ date: day.date, text: day.y })
+    if (day.w.trim()) w.push({ date: day.date, text: day.w })
+    if (day.t.trim()) t.push({ date: day.date, text: day.t })
+  }
+  return { notes, y, w, t, skipped }
 }

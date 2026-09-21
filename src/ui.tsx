@@ -7,6 +7,8 @@ export function Field({
   onChange,
   multiline,
   placeholder,
+  rows = 3,
+  action,
 }: {
   label: string
   hint?: string
@@ -14,56 +16,33 @@ export function Field({
   onChange: (v: string) => void
   multiline?: boolean
   placeholder?: string
+  rows?: number
+  action?: ReactNode
 }) {
   return (
-    <label className="field">
-      <span className="field-label">{label}</span>
+    <div className="field">
+      <div className="field-head">
+        <span className="field-label">{label}</span>
+        {action}
+      </div>
       {multiline ? (
         <textarea
-          rows={3}
+          rows={rows}
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
+          aria-label={label}
         />
       ) : (
         <input
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
+          aria-label={label}
         />
       )}
       {hint ? <span className="field-hint">{hint}</span> : null}
-    </label>
-  )
-}
-
-export function Select({
-  label,
-  value,
-  onChange,
-  options,
-  allowEmpty,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  options: { value: string; label: string }[]
-  allowEmpty?: string
-}) {
-  return (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
-        {allowEmpty !== undefined ? (
-          <option value="">{allowEmpty}</option>
-        ) : null}
-        {options.map((o) => (
-          <option value={o.value} key={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    </div>
   )
 }
 
@@ -90,17 +69,22 @@ export function Section({
   title,
   children,
   variant = 'plain',
+  action,
 }: {
   kicker?: string
   title: string
   children: ReactNode
   variant?: 'plain' | 'night' | 'panel'
+  action?: ReactNode
 }) {
   return (
     <section className={`section section-${variant}`}>
       <header className="section-head">
         {kicker ? <p className="kicker">{kicker}</p> : null}
-        <h2>{title}</h2>
+        <div className="section-title-row">
+          <h2>{title}</h2>
+          {action}
+        </div>
       </header>
       {children}
     </section>

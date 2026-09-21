@@ -1,34 +1,36 @@
 import { useEffect, useState } from 'react'
-import { GoalStrip } from './GoalStrip'
-import { GoalsPage } from './GoalsPage'
 import { HistoryPage } from './HistoryPage'
+import { Opening } from './Opening'
+import { OrganizePage } from './OrganizePage'
+import { ReviewPage } from './ReviewPage'
 import { StoreProvider } from './store'
 import { TodayPage } from './TodayPage'
-import { WeekPage } from './WeekPage'
 import { dateParts, todayISO } from './dates'
 
-const PAGES = ['today', 'week', 'goals', 'history'] as const
+const PAGES = ['today', 'review', 'history', 'organize'] as const
 type Page = (typeof PAGES)[number]
 
 const LABELS: Record<Page, string> = {
   today: '今日',
-  week: '今週',
-  goals: '目標',
+  review: 'まとめ',
   history: '履歴',
+  organize: '整理',
 }
 
-function parsePage(): Page {
+function parseHash(): { page: Page; date: string } {
   const h = window.location.hash.replace(/^#\/?/, '')
-  if (h === 'week' || h === 'goals' || h === 'history') return h
-  return 'today'
+  const todayMatch = h.match(/^today\/(\d{4}-\d{2}-\d{2})$/)
+  if (todayMatch) return { page: 'today', date: todayMatch[1] }
+  if (h === 'history' || h === 'review' || h === 'organize') return { page: h, date: todayISO() }
+  return { page: 'today', date: todayISO() }
 }
 
 function Shell() {
-  const [page, setPage] = useState<Page>(parsePage)
+  const [{ page, date }, setRoute] = useState(parseHash)
   const today = dateParts(todayISO())
 
   useEffect(() => {
-    const onHash = () => setPage(parsePage())
+    const onHash = () => setRoute(parseHash())
     window.addEventListener('hashchange', onHash)
     window.addEventListener('popstate', onHash)
     return () => {
@@ -37,9 +39,10 @@ function Shell() {
     }
   }, [])
 
-  function go(next: Page) {
-    setPage(next)
-    const url = `#${next}`
+  function go(next: Page, nextDate = todayISO()) {
+    const url =
+      next === 'today' && nextDate !== todayISO() ? `#today/${nextDate}` : `#${next}`
+    setRoute({ page: next, date: next === 'today' ? nextDate : todayISO() })
     if (window.location.hash !== url) {
       window.history.pushState(null, '', url)
     }
@@ -49,8 +52,11 @@ function Shell() {
     <div className="app">
       <aside className="rail">
         <div className="brand">
-          <p className="wordmark">確認</p>
-          <p className="tag">経営のリズム</p>
+          <img className="logo" src="/logo.svg" width="32" height="32" alt="" />
+          <div>
+            <p className="wordmark">リフレクションパレット</p>
+            <p className="tag">日々の振り返り</p>
+          </div>
         </div>
         <nav className="nav" aria-label="主要">
           {PAGES.map((p) => (
@@ -60,14 +66,14 @@ function Shell() {
               className={page === p ? 'nav-link on' : 'nav-link'}
               onClick={(e) => {
                 e.preventDefault()
-                go(p)
+                go(p, p === 'today' ? todayISO() : date)
               }}
             >
+              <i className={`nav-dot ${p}`} aria-hidden />
               {LABELS[p]}
             </a>
           ))}
         </nav>
-        {page === 'goals' ? null : <GoalStrip onGoals={() => go('goals')} />}
         <p className="rail-date">
           {today.month}/{today.day}
           <span> {today.weekday}</span>
@@ -77,11 +83,11 @@ function Shell() {
       <div className="canvas">
         <main>
           {page === 'today' ? (
-            <TodayPage onWeek={() => go('week')} onGoals={() => go('goals')} />
+            <TodayPage date={date} onDate={(d) => go('today', d)} onOrganize={() => go('organize')} />
           ) : null}
-          {page === 'week' ? <WeekPage /> : null}
-          {page === 'goals' ? <GoalsPage /> : null}
-          {page === 'history' ? <HistoryPage /> : null}
+          {page === 'review' ? <ReviewPage onOpenDay={(d) => go('today', d)} /> : null}
+          {page === 'history' ? <HistoryPage onOpenDay={(d) => go('today', d)} /> : null}
+          {page === 'organize' ? <OrganizePage /> : null}
         </main>
       </div>
     </div>
@@ -91,6 +97,7 @@ function Shell() {
 export default function App() {
   return (
     <StoreProvider>
+      <Opening />
       <Shell />
     </StoreProvider>
   )

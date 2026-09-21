@@ -6,71 +6,104 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { emptyDay } from './selectors'
+import { todayISO } from './dates'
 import {
   emptyState,
   type DayRecord,
-  type HorizonReview,
   type State,
-  type Status,
-  type TomorrowGoal,
+  asTaskLane,
+  type TaskLane,
+  type WorkCase,
+  type WorkTask,
 } from './types'
 
-const KEY = 'keiei.v1'
-
-function uid(): string {
+function nid() {
   return crypto.randomUUID()
 }
 
-function emptyTomorrow(): TomorrowGoal {
-  return {
-    id: uid(),
-    title: '',
-    plan: '',
-    monthGoalId: '',
-    quarterGoalId: '',
+function migrateCases(raw: unknown): WorkCase[] {
+  if (!Array.isArray(raw)) return []
+  const next: WorkCase[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as Partial<WorkCase>
+    const name = typeof row.name === 'string' ? row.name.trim() : ''
+    if (!row.id || !name) continue
+    next.push({ id: String(row.id), name })
   }
+  return next
 }
 
-function emptyDay(date: string): DayRecord {
-  return {
-    date,
-    focusIds: [],
-    quarterGoalId: '',
-    y: '',
-    w: '',
-    t: '',
-    skipped: false,
-    tomorrow: [emptyTomorrow(), emptyTomorrow(), emptyTomorrow()],
-    promiseReview: {},
+function migrateTasks(raw: unknown): WorkTask[] {
+  if (!Array.isArray(raw)) return []
+  const next: WorkTask[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as Partial<WorkTask>
+    const title = typeof row.title === 'string' ? row.title.trim() : ''
+    const lane = asTaskLane(row.lane)
+    if (!row.id || !row.caseId || !title) continue
+    next.push({
+      id: String(row.id),
+      caseId: String(row.caseId),
+      title,
+      lane,
+      doneAt: typeof row.doneAt === 'string' ? row.doneAt : undefined,
+    })
   }
+  return next
+}
+
+const KEY = 'keiei.v1'
+
+function asNoteMap(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object') return {}
+  const next: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === 'string' && value.trim()) next[key] = value
+  }
+  return next
 }
 
 function migrateDay(raw: Partial<DayRecord> & { date: string }): DayRecord {
   const day = { ...emptyDay(raw.date), ...raw }
-  if (!Array.isArray(day.tomorrow) || day.tomorrow.length === 0) {
-    day.tomorrow = [emptyTomorrow(), emptyTomorrow(), emptyTomorrow()]
-    if (raw.t?.trim()) {
-      day.tomorrow[0] = {
-        ...day.tomorrow[0],
-        title: raw.t,
-        quarterGoalId: raw.quarterGoalId ?? '',
-      }
-    }
+  const leftover = raw as Partial<DayRecord> & {
+    tomorrow?: Array<{ title?: string }>
   }
-  while (day.tomorrow.length < 3) day.tomorrow.push(emptyTomorrow())
-  if (!day.promiseReview) day.promiseReview = {}
-  return day
+  if (!day.t.trim() && Array.isArray(leftover.tomorrow)) {
+    day.t = leftover.tomorrow
+      .map((g) => g.title?.trim() ?? '')
+      .filter(Boolean)
+      .join(' / ')
+  }
+  day.note = typeof day.note === 'string' ? day.note : ''
+  day.y = typeof day.y === 'string' ? day.y : ''
+  day.w = typeof day.w === 'string' ? day.w : ''
+  day.t = typeof day.t === 'string' ? day.t : ''
+  day.skipped = Boolean(day.skipped)
+  return {
+    date: day.date,
+    note: day.note,
+    y: day.y,
+    w: day.w,
+    t: day.t,
+    skipped: day.skipped,
+  }
 }
 
-function migrateState(parsed: Partial<State>): State {
-  const next = { ...emptyState(), ...parsed }
-  if (!next.monthGoals) next.monthGoals = []
+function migrateState(parsed: Partial<State> & Record<string, unknown>): State {
   const days: State['days'] = {}
-  for (const [date, day] of Object.entries(next.days ?? {})) {
-    days[date] = migrateDay(day)
+  for (const [date, day] of Object.entries(parsed.days ?? {})) {
+    days[date] = migrateDay({ ...day, date })
   }
-  next.days = days
-  return next
+  return {
+    days,
+    weekNotes: asNoteMap(parsed.weekNotes),
+    monthNotes: asNoteMap(parsed.monthNotes),
+    cases: migrateCases(parsed.cases),
+    tasks: migrateTasks(parsed.tasks),
+  }
 }
 
 function load(): State {
@@ -84,76 +117,38 @@ function load(): State {
 }
 
 function persist(state: State) {
-  localStorage.setItem(KEY, JSON.stringify(state))
-}
-
-function emptyAction() {
-  return {
-    id: uid(),
-    quarterGoalId: '',
-    wish: '',
-    outcome: '',
-    obstacle: '',
-    plan: '',
+  let prev: Record<string, unknown> = {}
+  try {
+    prev = JSON.parse(localStorage.getItem(KEY) || '{}') as Record<string, unknown>
+  } catch {
+    prev = {}
   }
+  localStorage.setItem(
+    KEY,
+    JSON.stringify({
+      ...prev,
+      days: state.days,
+      weekNotes: state.weekNotes,
+      monthNotes: state.monthNotes,
+      cases: state.cases,
+      tasks: state.tasks,
+    }),
+  )
 }
 
 type Store = {
   state: State
-  replaceAll: (next: State) => void
-  upsertYearGoal: (
-    year: number,
-    index: number,
-    patch: { title?: string; intent?: string },
-  ) => void
-  upsertQuarterGoal: (
-    year: number,
-    quarter: number,
-    index: number,
-    patch: { title?: string; intent?: string; yearGoalId?: string },
-  ) => void
-  upsertMonthGoal: (
-    year: number,
-    month: number,
-    index: number,
-    patch: { title?: string; intent?: string; quarterGoalId?: string },
-  ) => void
-  patchWeekAction: (
-    week: string,
-    index: number,
-    patch: Partial<{
-      quarterGoalId: string
-      wish: string
-      outcome: string
-      obstacle: string
-      plan: string
-    }>,
-  ) => void
-  ensureWeek: (week: string) => void
-  ensureDay: (date: string) => void
-  patchDay: (
-    date: string,
-    patch: Partial<{
-      focusIds: string[]
-      quarterGoalId: string
-      y: string
-      w: string
-      t: string
-      skipped: boolean
-    }>,
-  ) => void
-  patchTomorrow: (
-    date: string,
-    index: number,
-    patch: Partial<TomorrowGoal>,
-  ) => void
-  patchPromise: (date: string, promiseId: string, status: Status) => void
-  toggleFocus: (date: string, actionId: string) => void
-  patchReview: (
-    week: string,
-    patch: Partial<{ why: string; keep: string; statuses: Record<string, Status> }>,
-  ) => void
-  upsertHorizon: (input: Omit<HorizonReview, 'id'> & { id?: string }) => void
+  patchDay: (date: string, patch: Partial<Omit<DayRecord, 'date'>>) => void
+  patchWeekNote: (week: string, note: string) => void
+  patchMonthNote: (key: string, note: string) => void
+  addCase: (name: string) => void
+  renameCase: (id: string, name: string) => void
+  removeCase: (id: string) => void
+  addTask: (caseId: string, title: string, lane?: TaskLane) => void
+  renameTask: (id: string, title: string) => void
+  moveTask: (id: string, lane: TaskLane) => void
+  removeTask: (id: string) => void
+  replaceArchive: (next: Partial<State>) => void
 }
 
 const StoreContext = createContext<Store | null>(null)
@@ -164,6 +159,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const commit = useCallback((recipe: (draft: State) => void) => {
     setState((prev) => {
       const next = structuredClone(prev)
+      if (!next.weekNotes) next.weekNotes = {}
+      if (!next.monthNotes) next.monthNotes = {}
+      if (!next.cases) next.cases = []
+      if (!next.tasks) next.tasks = []
+      next.tasks = next.tasks.map((task) => ({ ...task, lane: asTaskLane(task.lane) }))
       recipe(next)
       persist(next)
       return next
@@ -173,176 +173,95 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const store = useMemo<Store>(
     () => ({
       state,
-      replaceAll(next) {
-        const migrated = migrateState(next)
-        persist(migrated)
-        setState(migrated)
-      },
-      upsertYearGoal(year, index, patch) {
-        commit((s) => {
-          const current = s.yearGoals.filter((g) => g.year === year)
-          while (current.length <= index) {
-            const g = { id: uid(), year, title: '', intent: '' }
-            current.push(g)
-            s.yearGoals.push(g)
-          }
-          Object.assign(current[index], patch)
-        })
-      },
-      upsertQuarterGoal(year, quarter, index, patch) {
-        commit((s) => {
-          const current = s.quarterGoals.filter(
-            (g) => g.year === year && g.quarter === quarter,
-          )
-          while (current.length <= index) {
-            const g = {
-              id: uid(),
-              year,
-              quarter,
-              yearGoalId: '',
-              title: '',
-              intent: '',
-            }
-            current.push(g)
-            s.quarterGoals.push(g)
-          }
-          Object.assign(current[index], patch)
-        })
-      },
-      upsertMonthGoal(year, month, index, patch) {
-        commit((s) => {
-          const current = s.monthGoals.filter(
-            (g) => g.year === year && g.month === month,
-          )
-          while (current.length <= index) {
-            const g = {
-              id: uid(),
-              year,
-              month,
-              quarterGoalId: '',
-              title: '',
-              intent: '',
-            }
-            current.push(g)
-            s.monthGoals.push(g)
-          }
-          Object.assign(current[index], patch)
-        })
-      },
-      patchWeekAction(week, index, patch) {
-        commit((s) => {
-          if (!s.weeks[week]) {
-            s.weeks[week] = {
-              weekStart: week,
-              actions: [emptyAction(), emptyAction(), emptyAction()],
-            }
-          }
-          const plan = s.weeks[week]
-          while (plan.actions.length <= index) plan.actions.push(emptyAction())
-          Object.assign(plan.actions[index], patch)
-        })
-      },
-      ensureWeek(week) {
-        setState((prev) => {
-          const existing = prev.weeks[week]
-          if (existing && existing.actions.length >= 3) return prev
-          const next = structuredClone(prev)
-          if (!next.weeks[week]) {
-            next.weeks[week] = {
-              weekStart: week,
-              actions: [emptyAction(), emptyAction(), emptyAction()],
-            }
-          }
-          while (next.weeks[week].actions.length < 3) {
-            next.weeks[week].actions.push(emptyAction())
-          }
-          persist(next)
-          return next
-        })
-      },
-      ensureDay(date) {
-        setState((prev) => {
-          const existing = prev.days[date]
-          if (existing && existing.tomorrow?.length >= 3) return prev
-          const next = structuredClone(prev)
-          next.days[date] = migrateDay(existing ?? { date })
-          persist(next)
-          return next
-        })
-      },
       patchDay(date, patch) {
         commit((s) => {
           if (!s.days[date]) s.days[date] = emptyDay(date)
           Object.assign(s.days[date], patch)
-        })
-      },
-      patchTomorrow(date, index, patch) {
-        commit((s) => {
-          if (!s.days[date]) s.days[date] = emptyDay(date)
-          const day = s.days[date]
-          while (day.tomorrow.length <= index) day.tomorrow.push(emptyTomorrow())
-          Object.assign(day.tomorrow[index], patch)
-          day.t = day.tomorrow
-            .map((g) => g.title.trim())
-            .filter(Boolean)
-            .join(' / ')
-          day.skipped = false
-        })
-      },
-      patchPromise(date, promiseId, status) {
-        commit((s) => {
-          if (!s.days[date]) s.days[date] = emptyDay(date)
-          s.days[date].promiseReview[promiseId] = status
-          s.days[date].skipped = false
-        })
-      },
-      toggleFocus(date, actionId) {
-        commit((s) => {
-          if (!s.days[date]) s.days[date] = emptyDay(date)
-          const day = s.days[date]
-          if (day.focusIds.includes(actionId)) {
-            day.focusIds = day.focusIds.filter((id) => id !== actionId)
-          } else if (day.focusIds.length < 3) {
-            day.focusIds = [...day.focusIds, actionId]
+          const day = { ...emptyDay(date), ...s.days[date] }
+          s.days[date] = day
+          if (
+            !day.note.trim() &&
+            !day.y.trim() &&
+            !day.w.trim() &&
+            !day.t.trim() &&
+            !day.skipped
+          ) {
+            delete s.days[date]
           }
         })
       },
-      patchReview(week, patch) {
+      patchWeekNote(week, note) {
         commit((s) => {
-          if (!s.reviews[week]) {
-            s.reviews[week] = { weekStart: week, why: '', keep: '', statuses: {} }
-          }
-          const r = s.reviews[week]
-          if (patch.why !== undefined) r.why = patch.why
-          if (patch.keep !== undefined) r.keep = patch.keep
-          if (patch.statuses) r.statuses = { ...r.statuses, ...patch.statuses }
+          if (note.trim()) s.weekNotes[week] = note
+          else delete s.weekNotes[week]
         })
       },
-      upsertHorizon(input) {
+      patchMonthNote(key, note) {
         commit((s) => {
-          const found = s.horizons.find((h) =>
-            input.id
-              ? h.id === input.id
-              : h.kind === input.kind &&
-                h.year === input.year &&
-                h.quarter === input.quarter,
-          )
-          if (found) {
-            found.wentWell = input.wentWell
-            found.wentPoorly = input.wentPoorly
-            found.workingToward = input.workingToward
-          } else {
-            s.horizons.push({
-              id: input.id ?? uid(),
-              kind: input.kind,
-              year: input.year,
-              quarter: input.quarter,
-              wentWell: input.wentWell,
-              wentPoorly: input.wentPoorly,
-              workingToward: input.workingToward,
-            })
-          }
+          if (note.trim()) s.monthNotes[key] = note
+          else delete s.monthNotes[key]
         })
+      },
+      addCase(name) {
+        const trimmed = name.trim()
+        if (!trimmed) return
+        commit((s) => {
+          s.cases.push({ id: nid(), name: trimmed })
+        })
+      },
+      renameCase(id, name) {
+        const trimmed = name.trim()
+        if (!trimmed) return
+        commit((s) => {
+          const row = s.cases.find((c) => c.id === id)
+          if (row) row.name = trimmed
+        })
+      },
+      removeCase(id) {
+        commit((s) => {
+          s.cases = s.cases.filter((c) => c.id !== id)
+          s.tasks = s.tasks.filter((t) => t.caseId !== id)
+        })
+      },
+      addTask(caseId, title, lane = 'open') {
+        const trimmed = title.trim()
+        if (!trimmed) return
+        commit((s) => {
+          if (!s.cases.some((c) => c.id === caseId)) return
+          s.tasks.push({
+            id: nid(),
+            caseId,
+            title: trimmed,
+            lane,
+            doneAt: lane === 'done' ? todayISO() : undefined,
+          })
+        })
+      },
+      renameTask(id, title) {
+        const trimmed = title.trim()
+        if (!trimmed) return
+        commit((s) => {
+          const row = s.tasks.find((t) => t.id === id)
+          if (row) row.title = trimmed
+        })
+      },
+      moveTask(id, lane) {
+        commit((s) => {
+          const row = s.tasks.find((t) => t.id === id)
+          if (!row || row.lane === lane) return
+          row.lane = lane
+          row.doneAt = lane === 'done' ? todayISO() : undefined
+        })
+      },
+      removeTask(id) {
+        commit((s) => {
+          s.tasks = s.tasks.filter((t) => t.id !== id)
+        })
+      },
+      replaceArchive(next) {
+        const merged = migrateState({ ...state, ...next })
+        persist(merged)
+        setState(merged)
       },
     }),
     [commit, state],
