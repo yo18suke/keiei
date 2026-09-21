@@ -75,8 +75,7 @@ export function AccountPage({
             {!clientId ? (
               <form className="google-setup" onSubmit={submitClientId}>
                 <p className="muted">
-                  初回だけ、Google Cloud のウェブクライアントIDを入れます。本番では
-                  https://yo18suke.github.io を JavaScript 生成元に追加してください。
+                  初回だけ、Google Cloud のウェブクライアントIDを入れます。本番では公開URLの生成元（例 https://reflection-palette.pages.dev）を JavaScript 生成元に追加してください。
                 </p>
                 <div className="case-new">
                   <input
