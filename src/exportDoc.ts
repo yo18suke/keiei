@@ -7,61 +7,149 @@ import {
   weekDates,
   weekStart,
 } from './dates'
+import { looksLikeList, parseListItems } from './lists'
 import { dayAt, dayHasEntry, daysOn } from './selectors'
 import type { DayRecord, State } from './types'
 
-function block(title: string, body: string) {
-  const text = body.trim()
-  if (!text) return ''
-  return `${title}\n${text}\n`
-}
+export type DocSpan =
+  | { kind: 'title'; text: string }
+  | { kind: 'kicker'; text: string }
+  | { kind: 'heading'; text: string }
+  | { kind: 'label'; text: string }
+  | { kind: 'para'; text: string }
+  | { kind: 'list'; items: string[] }
+  | { kind: 'rule' }
 
-export function formatDayDoc(day: DayRecord) {
-  if (day.skipped) {
-    return `リフレクションパレット\n\n${formatJa(day.date)}\n\n書けなかった\n`
+function field(label: string, body: string): DocSpan[] {
+  const text = body.trim()
+  if (!text) return []
+  if (looksLikeList(text)) {
+    return [
+      { kind: 'label', text: label },
+      { kind: 'list', items: parseListItems(text) },
+    ]
   }
   return [
-    'リフレクションパレット',
-    '',
-    formatJa(day.date),
-    '',
-    block('自由に書く', day.note),
-    block('やったこと', day.y),
-    block('学んだこと', day.w),
-    block('明日以降意識すること', day.t),
+    { kind: 'label', text: label },
+    { kind: 'para', text },
   ]
-    .filter((line, i, all) => line !== '' || all[i - 1] !== '')
-    .join('\n')
-    .trim()
-    .concat('\n')
 }
 
-export function formatWeekDoc(state: State, week: string) {
+function daySpans(day: DayRecord): DocSpan[] {
+  if (day.skipped) {
+    return [
+      { kind: 'heading', text: formatJa(day.date) },
+      { kind: 'para', text: '書けなかった' },
+    ]
+  }
+  return [
+    { kind: 'heading', text: formatJa(day.date) },
+    ...field('自由に書く', day.note),
+    ...field('やったこと', day.y),
+    ...field('学んだこと', day.w),
+    ...field('明日以降意識すること', day.t),
+  ]
+}
+
+export function buildDayDoc(day: DayRecord): DocSpan[] {
+  return [{ kind: 'title', text: 'リフレクションパレット' }, { kind: 'kicker', text: formatJa(day.date) }, ...daySpans(day).slice(1)]
+}
+
+export function buildWeekDoc(state: State, week: string): DocSpan[] {
   const days = daysOn(state, weekDates(week))
   const note = state.weekNotes?.[week] ?? ''
-  const body = days.map((day) => formatDayDoc(day).replace(/^リフレクションパレット\n\n/, '')).join('\n')
-  return ['リフレクションパレット · 今週', formatWeekRange(week), '', block('今週の振り返り', note), body]
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
+  const parts: DocSpan[] = [
+    { kind: 'title', text: 'リフレクションパレット' },
+    { kind: 'kicker', text: `今週 · ${formatWeekRange(week)}` },
+    ...field('今週の振り返り', note),
+  ]
+  for (const day of days) {
+    parts.push({ kind: 'rule' }, ...daySpans(day))
+  }
+  return parts
 }
 
-export function formatMonthDoc(state: State, year: number, month: number) {
+export function buildMonthDoc(state: State, year: number, month: number): DocSpan[] {
   const days = daysOn(state, monthDates(year, month))
   const note = state.monthNotes?.[monthKey(year, month)] ?? ''
-  const body = days.map((day) => formatDayDoc(day).replace(/^リフレクションパレット\n\n/, '')).join('\n')
-  return ['リフレクションパレット · 今月', formatMonth(year, month), '', block('今月の振り返り', note), body]
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
+  const parts: DocSpan[] = [
+    { kind: 'title', text: 'リフレクションパレット' },
+    { kind: 'kicker', text: `今月 · ${formatMonth(year, month)}` },
+    ...field('今月の振り返り', note),
+  ]
+  for (const day of days) {
+    parts.push({ kind: 'rule' }, ...daySpans(day))
+  }
+  return parts
 }
 
-export function formatAllDoc(state: State) {
+export function buildAllDoc(state: State): DocSpan[] {
   const dates = Object.keys(state.days)
     .filter((date) => dayHasEntry(dayAt(state, date)))
     .sort()
-  if (dates.length === 0) return 'リフレクションパレット\n\nまだ振り返りがありません。\n'
+  if (dates.length === 0) {
+    return [
+      { kind: 'title', text: 'リフレクションパレット' },
+      { kind: 'para', text: 'まだ振り返りがありません。' },
+    ]
+  }
   const weeks = [...new Set(dates.map((date) => weekStart(date)))].sort()
-  const parts = weeks.map((week) => formatWeekDoc(state, week))
-  return `リフレクションパレット\n\n${parts.join('\n')}`
+  const parts: DocSpan[] = [{ kind: 'title', text: 'リフレクションパレット' }, { kind: 'kicker', text: 'これまでの振り返り' }]
+  for (const week of weeks) {
+    const inner = buildWeekDoc(state, week).filter((part) => part.kind !== 'title')
+    parts.push({ kind: 'rule' }, ...inner)
+  }
+  return parts
+}
+
+export function renderDocText(parts: DocSpan[]) {
+  const lines: string[] = []
+  for (const part of parts) {
+    if (part.kind === 'title') {
+      lines.push(part.text, '')
+      continue
+    }
+    if (part.kind === 'kicker') {
+      lines.push(part.text, '')
+      continue
+    }
+    if (part.kind === 'heading') {
+      if (lines.length) lines.push('')
+      lines.push(part.text, '')
+      continue
+    }
+    if (part.kind === 'label') {
+      lines.push(part.text)
+      continue
+    }
+    if (part.kind === 'para') {
+      lines.push(part.text, '')
+      continue
+    }
+    if (part.kind === 'list') {
+      for (const item of part.items) lines.push(`・${item}`)
+      lines.push('')
+      continue
+    }
+    lines.push('────────', '')
+  }
+  return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n`
+}
+
+export function formatDayDoc(day: DayRecord) {
+  return renderDocText(buildDayDoc(day))
+}
+
+export function formatWeekDoc(state: State, week: string) {
+  return renderDocText(buildWeekDoc(state, week))
+}
+
+export function formatMonthDoc(state: State, year: number, month: number) {
+  return renderDocText(buildMonthDoc(state, year, month))
+}
+
+export function formatAllDoc(state: State) {
+  return renderDocText(buildAllDoc(state))
 }
 
 export function downloadText(filename: string, text: string) {
@@ -86,4 +174,3 @@ export async function copyText(text: string) {
 export function docFilename(suffix: string) {
   return `リフレクションパレット-${suffix}.txt`
 }
-

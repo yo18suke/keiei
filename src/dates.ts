@@ -46,6 +46,16 @@ export function weekdayJa(iso: string): string {
   return WEEKDAYS[parseISO(iso).getDay()]
 }
 
+export function weekdayNum(iso: string) {
+  return parseISO(iso).getDay()
+}
+
+export function daysBetween(from: string, to: string) {
+  const a = parseISO(from)
+  const b = parseISO(to)
+  return Math.round((b.getTime() - a.getTime()) / 86400000)
+}
+
 export function formatJa(iso: string): string {
   const d = parseISO(iso)
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${weekdayJa(iso)}）`

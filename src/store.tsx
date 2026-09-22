@@ -9,9 +9,11 @@ import {
   type ReactNode,
 } from 'react'
 import { useAuth } from './auth'
+import { applyRemoteGoogleTask, deleteGoogleTask, listGoogleTasks, upsertGoogleTask } from './calendar'
 import { loadCloud, saveCloud } from './cloud'
 import { emptyDay } from './selectors'
 import { asDateList, isISODate } from './todos'
+import { asTaskRepeat } from './repeat'
 import { appendSpoken } from './speech'
 import { mergeStates } from './sync'
 import { addDays, todayISO } from './dates'
@@ -23,9 +25,14 @@ import {
   asTaskLane,
   CASE_COLORS,
   nextCaseColor,
+  type CalendarLink,
+  type GoogleTaskRef,
   type TaskLane,
   type WorkCase,
   type WorkTask,
+  type TaskRepeat,
+  calendarLinksOf,
+  googleTasksOf,
 } from './types'
 
 function nid() {
@@ -50,7 +57,7 @@ function migrateCases(raw: unknown): WorkCase[] {
   return next
 }
 
-function migrateTasks(raw: unknown): WorkTask[] {
+function migrateTasks(raw: unknown, fallbackEmail?: string): WorkTask[] {
   if (!Array.isArray(raw)) return []
   const next: WorkTask[] = []
   for (const item of raw) {
@@ -59,6 +66,7 @@ function migrateTasks(raw: unknown): WorkTask[] {
     const title = typeof row.title === 'string' ? row.title.trim() : ''
     const lane = asTaskLane(row.lane)
     if (!row.id || !row.caseId || !title) continue
+    const googleTasks = asGoogleTasks(row.googleTasks, row, fallbackEmail)
     next.push({
       id: String(row.id),
       caseId: String(row.caseId),
@@ -67,6 +75,11 @@ function migrateTasks(raw: unknown): WorkTask[] {
       doneAt: typeof row.doneAt === 'string' ? row.doneAt : undefined,
       scheduledOn: isISODate(row.scheduledOn) ? row.scheduledOn : undefined,
       plannedDates: asDateList(row.plannedDates, isISODate(row.scheduledOn) ? row.scheduledOn : undefined),
+      doneDates: asDateList(row.doneDates),
+      repeat: asTaskRepeat(row.repeat),
+      googleTasks: googleTasks.length ? googleTasks : undefined,
+      googleTaskId: googleTasks[0]?.taskId,
+      googleTaskListId: googleTasks[0]?.listId,
     })
   }
   return next
@@ -114,13 +127,76 @@ export function migrateState(parsed: Partial<State> & Record<string, unknown>): 
   for (const [date, day] of Object.entries(parsed.days ?? {})) {
     days[date] = migrateDay({ ...day, date })
   }
+  const calendarLinks = asCalendarLinks(parsed.calendarLinks, parsed.calendarLink)
   return {
     days,
     weekNotes: asNoteMap(parsed.weekNotes),
     monthNotes: asNoteMap(parsed.monthNotes),
     cases: migrateCases(parsed.cases),
-    tasks: migrateTasks(parsed.tasks),
+    tasks: migrateTasks(parsed.tasks, calendarLinks[0]?.accountEmail),
+    calendarLinks,
+    calendarLink: calendarLinks[0],
   }
+}
+
+function asCalendarLink(raw: unknown): CalendarLink | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const row = raw as Partial<CalendarLink>
+  if (!row.listId || !row.listTitle) return undefined
+  const email = typeof row.accountEmail === 'string' ? row.accountEmail.trim() : ''
+  return {
+    accountEmail: email,
+    listId: String(row.listId),
+    listTitle: String(row.listTitle),
+  }
+}
+
+function asCalendarLinks(raw: unknown, fallback?: unknown): CalendarLink[] {
+  const next: CalendarLink[] = []
+  const seen = new Set<string>()
+  const add = (link?: CalendarLink) => {
+    if (!link) return
+    const key = link.accountEmail.toLowerCase() || `__list__${link.listId}`
+    if (seen.has(key)) return
+    seen.add(key)
+    next.push(link)
+  }
+  if (Array.isArray(raw)) {
+    for (const item of raw) add(asCalendarLink(item))
+  }
+  add(asCalendarLink(fallback))
+  return next
+}
+
+function asGoogleTasks(raw: unknown, fallback?: Partial<WorkTask>, email?: string): GoogleTaskRef[] {
+  const next: GoogleTaskRef[] = []
+  const seen = new Set<string>()
+  const add = (ref?: GoogleTaskRef) => {
+    if (!ref?.listId || !ref.taskId) return
+    const key = `${ref.accountEmail.toLowerCase()}::${ref.listId}`
+    if (seen.has(key)) return
+    seen.add(key)
+    next.push(ref)
+  }
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue
+      const row = item as Partial<GoogleTaskRef>
+      add({
+        accountEmail: typeof row.accountEmail === 'string' ? row.accountEmail : '',
+        listId: String(row.listId ?? ''),
+        taskId: String(row.taskId ?? ''),
+      })
+    }
+  }
+  if (typeof fallback?.googleTaskId === 'string' && typeof fallback.googleTaskListId === 'string') {
+    add({
+      accountEmail: email ?? '',
+      listId: fallback.googleTaskListId,
+      taskId: fallback.googleTaskId,
+    })
+  }
+  return next
 }
 
 function load(): State {
@@ -149,6 +225,8 @@ function persist(state: State) {
       monthNotes: state.monthNotes,
       cases: state.cases,
       tasks: state.tasks,
+      calendarLinks: calendarLinksOf(state),
+      calendarLink: calendarLinksOf(state)[0],
     }),
   )
 }
@@ -174,9 +252,14 @@ type Store = {
   renameTask: (id: string, title: string) => void
   moveTask: (id: string, lane: TaskLane) => void
   scheduleTask: (id: string, date: string | '') => void
+  setTaskRepeat: (id: string, repeat: TaskRepeat | undefined) => void
   toggleTaskDone: (id: string, date: string) => void
   carryTasks: (fromDate: string) => void
   removeTask: (id: string) => void
+  upsertCalendarLink: (link: CalendarLink) => void
+  clearCalendarList: (email: string) => void
+  removeCalendarAccount: (email: string) => void
+  syncCalendarNow: () => Promise<void>
   replaceArchive: (next: Partial<State>) => void
   flushCloud: () => Promise<void>
 }
@@ -238,12 +321,135 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         next.tasks = next.tasks.map((task) => ({ ...task, lane: asTaskLane(task.lane) }))
         recipe(next)
         persist(next)
+        stateRef.current = next
         schedulePush(next)
         return next
       })
     },
     [schedulePush],
   )
+
+  const calTimers = useRef<Record<string, number>>({})
+  const lastLocalEdit = useRef<Record<string, number>>({})
+  const calQueue = useRef(Promise.resolve())
+
+  const enqueueCalendar = useCallback((job: () => Promise<void>) => {
+    const run = calQueue.current.then(job, job)
+    calQueue.current = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }, [])
+
+  const writeGoogleTasks = useCallback((task: WorkTask, next: GoogleTaskRef[]) => {
+    task.googleTasks = next.length ? next : undefined
+    task.googleTaskId = next[0]?.taskId
+    task.googleTaskListId = next[0]?.listId
+  }, [])
+
+  const rememberTask = useCallback((taskId: string, ref: GoogleTaskRef, replaceEmail?: string) => {
+    commit((s) => {
+      const row = s.tasks.find((task) => task.id === taskId)
+      if (!row) return
+      const email = (replaceEmail || ref.accountEmail).toLowerCase()
+      const next = googleTasksOf(row).filter((item) => item.accountEmail.toLowerCase() !== email)
+      next.push(ref)
+      writeGoogleTasks(row, next)
+    })
+  }, [commit, writeGoogleTasks])
+
+  const pushCalendarTask = useCallback(async (taskId: string) => {
+    const links = calendarLinksOf(stateRef.current)
+    if (!links.length) return
+    const task = stateRef.current.tasks.find((row) => row.id === taskId)
+    if (!task) return
+    const caseName = stateRef.current.cases.find((row) => row.id === task.caseId)?.name
+    for (const link of links) {
+      if (!link.accountEmail || !link.listId) continue
+      try {
+        const ref = await upsertGoogleTask(link, task, caseName)
+        const current = googleTasksOf(task).find((item) => item.accountEmail.toLowerCase() === link.accountEmail.toLowerCase())
+        if (!current || current.taskId !== ref.taskId || current.listId !== ref.listId) {
+          rememberTask(taskId, ref, link.accountEmail)
+        }
+      } catch {
+        /* カレンダー側の失敗で入力は止めない */
+      }
+    }
+  }, [rememberTask])
+
+  const queueCalendarTask = useCallback((taskId: string) => {
+    lastLocalEdit.current[taskId] = Date.now()
+    if (!calendarLinksOf(stateRef.current).length) return
+    window.clearTimeout(calTimers.current[taskId])
+    calTimers.current[taskId] = window.setTimeout(() => {
+      void pushCalendarTask(taskId)
+    }, 450)
+  }, [pushCalendarTask])
+
+  const dropCalendarTask = useCallback((task?: WorkTask, email?: string) => {
+    if (!task) return
+    for (const ref of googleTasksOf(task)) {
+      if (email && ref.accountEmail.toLowerCase() !== email.toLowerCase()) continue
+      if (!ref.accountEmail) continue
+      void deleteGoogleTask(ref.accountEmail, ref.listId, ref.taskId).catch(() => undefined)
+    }
+  }, [])
+
+  const ingestGoogleTasks = useCallback(async () => {
+    const links = calendarLinksOf(stateRef.current).filter((link) => link.accountEmail && link.listId)
+    if (!links.length) return [] as string[]
+    const remotesByTask = new Map<string, Awaited<ReturnType<typeof listGoogleTasks>>>()
+    for (const link of links) {
+      try {
+        const items = await listGoogleTasks(link.accountEmail, link.listId)
+        const byId = new Map(items.map((item) => [item.id, item]))
+        for (const task of stateRef.current.tasks) {
+          const ref = googleTasksOf(task).find(
+            (row) =>
+              row.accountEmail.toLowerCase() === link.accountEmail.toLowerCase() && row.listId === link.listId,
+          )
+          if (!ref) continue
+          const remote = byId.get(ref.taskId)
+          if (!remote) continue
+          const current = remotesByTask.get(task.id) ?? []
+          current.push(remote)
+          remotesByTask.set(task.id, current)
+        }
+      } catch {
+        /* 片方のアカウントが読めなくても、他は取り込む */
+      }
+    }
+    const changed: string[] = []
+    commit((s) => {
+      for (const task of s.tasks) {
+        const remotes = remotesByTask.get(task.id)
+        if (!remotes?.length) continue
+        if (Date.now() - (lastLocalEdit.current[task.id] ?? 0) < 8000) continue
+        if (applyRemoteGoogleTask(task, remotes)) changed.push(task.id)
+      }
+    })
+    return changed
+  }, [commit])
+
+  const pullCalendarTasks = useCallback(() => {
+    if (!calendarLinksOf(stateRef.current).length) return Promise.resolve()
+    return enqueueCalendar(async () => {
+      const changed = await ingestGoogleTasks()
+      for (const id of changed) await pushCalendarTask(id)
+    })
+  }, [enqueueCalendar, ingestGoogleTasks, pushCalendarTask])
+
+  const syncCalendarNow = useCallback(() => {
+    if (!calendarLinksOf(stateRef.current).length) return Promise.resolve()
+    return enqueueCalendar(async () => {
+      await ingestGoogleTasks()
+      for (const task of stateRef.current.tasks) {
+        await pushCalendarTask(task.id)
+      }
+    })
+  }, [enqueueCalendar, ingestGoogleTasks, pushCalendarTask])
 
   useEffect(() => {
     if (!user || !driveReady) {
@@ -310,6 +516,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [driveReady, user])
 
+  const linksKey = calendarLinksOf(state)
+    .map((link) => `${link.accountEmail}:${link.listId}`)
+    .join('|')
+
+  useEffect(() => {
+    if (!linksKey) return
+    let cancelled = false
+    const run = () => {
+      if (cancelled || document.visibilityState === 'hidden') return
+      void pullCalendarTasks()
+    }
+    run()
+    window.addEventListener('focus', run)
+    document.addEventListener('visibilitychange', run)
+    const timer = window.setInterval(run, 45_000)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', run)
+      document.removeEventListener('visibilitychange', run)
+      window.clearInterval(timer)
+    }
+  }, [linksKey, pullCalendarTasks])
 
   const store = useMemo<Store>(
     () => ({
@@ -416,19 +644,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         })
       },
       removeCase(id) {
+        const gone = stateRef.current.tasks.filter((task) => task.caseId === id)
         commit((s) => {
           s.cases = s.cases.filter((c) => c.id !== id)
           s.tasks = s.tasks.filter((t) => t.caseId !== id)
         })
+        for (const task of gone) dropCalendarTask(task)
       },
       addTask(caseId, title, lane = 'open', scheduledOn) {
         const trimmed = title.trim()
         if (!trimmed) return
+        let id = ''
         commit((s) => {
           if (!s.cases.some((c) => c.id === caseId)) return
           const on = isISODate(scheduledOn) ? scheduledOn : undefined
+          id = nid()
           s.tasks.push({
-            id: nid(),
+            id,
             caseId,
             title: trimmed,
             lane,
@@ -437,6 +669,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             plannedDates: on ? [on] : [],
           })
         })
+        if (id) queueCalendarTask(id)
       },
       renameTask(id, title) {
         const trimmed = title.trim()
@@ -445,6 +678,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const row = s.tasks.find((t) => t.id === id)
           if (row) row.title = trimmed
         })
+        queueCalendarTask(id)
       },
       moveTask(id, lane) {
         commit((s) => {
@@ -454,12 +688,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (lane === 'done') {
             const on = todayISO()
             row.doneAt = on
+            row.repeat = undefined
             if (!row.scheduledOn) row.scheduledOn = on
             row.plannedDates = asDateList(row.plannedDates, row.scheduledOn)
           } else {
             row.doneAt = undefined
           }
         })
+        queueCalendarTask(id)
       },
       scheduleTask(id, date) {
         commit((s) => {
@@ -467,18 +703,45 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!row) return
           if (!date) {
             row.scheduledOn = undefined
+            row.repeat = undefined
             return
           }
           if (!isISODate(date)) return
           row.scheduledOn = date
           row.plannedDates = asDateList(row.plannedDates, date)
         })
+        queueCalendarTask(id)
+      },
+      setTaskRepeat(id, repeat) {
+        commit((s) => {
+          const row = s.tasks.find((t) => t.id === id)
+          if (!row) return
+          const next = asTaskRepeat(repeat)
+          if (!next) {
+            row.repeat = undefined
+            return
+          }
+          if (!row.scheduledOn) {
+            row.scheduledOn = todayISO()
+            row.plannedDates = asDateList(row.plannedDates, row.scheduledOn)
+          }
+          row.repeat = next
+        })
+        queueCalendarTask(id)
       },
       toggleTaskDone(id, date) {
         if (!isISODate(date)) return
         commit((s) => {
           const row = s.tasks.find((t) => t.id === id)
           if (!row) return
+          if (row.repeat) {
+            const current = new Set(row.doneDates ?? [])
+            if (current.has(date)) current.delete(date)
+            else current.add(date)
+            row.doneDates = [...current].sort()
+            row.plannedDates = asDateList(row.plannedDates, date)
+            return
+          }
           if (asTaskLane(row.lane) === 'done' && row.doneAt === date) {
             row.lane = 'open'
             row.doneAt = undefined
@@ -489,23 +752,64 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           row.scheduledOn = date
           row.plannedDates = asDateList(row.plannedDates, date)
         })
+        queueCalendarTask(id)
       },
       carryTasks(fromDate) {
         if (!isISODate(fromDate)) return
         const next = addDays(fromDate, 1)
+        const moved: string[] = []
         commit((s) => {
           for (const row of s.tasks) {
+            if (row.repeat) continue
             if (row.scheduledOn !== fromDate || asTaskLane(row.lane) === 'done') continue
             row.scheduledOn = next
             row.plannedDates = asDateList(row.plannedDates, next)
+            moved.push(row.id)
           }
         })
+        for (const id of moved) queueCalendarTask(id)
       },
       removeTask(id) {
+        const row = stateRef.current.tasks.find((task) => task.id === id)
         commit((s) => {
           s.tasks = s.tasks.filter((t) => t.id !== id)
         })
+        dropCalendarTask(row)
       },
+      upsertCalendarLink(link) {
+        commit((s) => {
+          const next = calendarLinksOf(s).filter((row) => row.accountEmail.toLowerCase() !== link.accountEmail.toLowerCase())
+          next.push(link)
+          s.calendarLinks = next
+          s.calendarLink = next[0]
+        })
+        void syncCalendarNow()
+      },
+      clearCalendarList(email) {
+        commit((s) => {
+          const next = calendarLinksOf(s).filter((row) => row.accountEmail.toLowerCase() !== email.toLowerCase())
+          s.calendarLinks = next
+          s.calendarLink = next[0]
+        })
+      },
+      removeCalendarAccount(email) {
+        const doomed = stateRef.current.tasks.filter((row) =>
+          googleTasksOf(row).some((ref) => ref.accountEmail.toLowerCase() === email.toLowerCase()),
+        )
+        commit((s) => {
+          const next = calendarLinksOf(s).filter((row) => row.accountEmail.toLowerCase() !== email.toLowerCase())
+          s.calendarLinks = next
+          s.calendarLink = next[0]
+          for (const row of s.tasks) {
+            writeGoogleTasks(
+              row,
+              googleTasksOf(row).filter((ref) => ref.accountEmail.toLowerCase() !== email.toLowerCase()),
+            )
+          }
+        })
+        for (const row of doomed) dropCalendarTask(row, email)
+      },
+      syncCalendarNow,
       replaceArchive(next) {
         const merged = migrateState({ ...state, ...next })
         persist(merged)
@@ -518,7 +822,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await pushCloud(stateRef.current)
       },
     }),
-    [commit, pushCloud, schedulePush, state, syncStatus],
+    [commit, dropCalendarTask, pushCloud, queueCalendarTask, schedulePush, state, syncCalendarNow, syncStatus, writeGoogleTasks],
   )
 
   return <StoreContext value={store}>{children}</StoreContext>

@@ -49,6 +49,21 @@ export function nextCaseColor(cases: WorkCase[]) {
   return CASE_COLORS.find((color) => !used.has(color)) ?? CASE_COLORS[cases.length % CASE_COLORS.length]
 }
 
+export type RepeatFreq = 'daily' | 'weekly' | 'monthly'
+
+export type TaskRepeat = {
+  freq: RepeatFreq
+  interval: number
+  weekdays?: number[]
+  until?: string
+}
+
+export type GoogleTaskRef = {
+  accountEmail: string
+  listId: string
+  taskId: string
+}
+
 export type WorkTask = {
   id: string
   caseId: string
@@ -57,6 +72,17 @@ export type WorkTask = {
   doneAt?: string
   scheduledOn?: string
   plannedDates: string[]
+  doneDates?: string[]
+  repeat?: TaskRepeat
+  googleTaskId?: string
+  googleTaskListId?: string
+  googleTasks?: GoogleTaskRef[]
+}
+
+export type CalendarLink = {
+  accountEmail: string
+  listId: string
+  listTitle: string
 }
 
 export type State = {
@@ -65,6 +91,8 @@ export type State = {
   monthNotes: Record<string, string>
   cases: WorkCase[]
   tasks: WorkTask[]
+  calendarLink?: CalendarLink
+  calendarLinks?: CalendarLink[]
 }
 
 export const emptyState = (): State => ({
@@ -73,4 +101,21 @@ export const emptyState = (): State => ({
   monthNotes: {},
   cases: [],
   tasks: [],
+  calendarLinks: [],
 })
+
+export function googleTasksOf(task: WorkTask): GoogleTaskRef[] {
+  if (task.googleTasks?.length) return task.googleTasks
+  if (task.googleTaskId && task.googleTaskListId) {
+    return [{ accountEmail: '', listId: task.googleTaskListId, taskId: task.googleTaskId }]
+  }
+  return []
+}
+
+export function calendarLinksOf(state: Pick<State, 'calendarLink' | 'calendarLinks'>): CalendarLink[] {
+  if (state.calendarLinks?.length) return state.calendarLinks
+  if (state.calendarLink?.listId && state.calendarLink.listTitle) {
+    return [state.calendarLink]
+  }
+  return []
+}

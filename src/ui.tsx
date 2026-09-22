@@ -1,4 +1,83 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { joinListItems, parseListItems } from './lists'
+
+export function ListEditor({
+  value,
+  onChange,
+  label,
+  placeholder,
+  syncKey,
+}: {
+  value: string
+  onChange: (v: string) => void
+  label: string
+  placeholder?: string
+  syncKey?: string
+}) {
+  const [rows, setRows] = useState<string[]>(() => {
+    const items = parseListItems(value)
+    return items.length ? [...items, ''] : ['']
+  })
+  const inputs = useRef<Array<HTMLInputElement | null>>([])
+  const valueRef = useRef(value)
+  valueRef.current = value
+
+  useEffect(() => {
+    const items = parseListItems(valueRef.current)
+    setRows(items.length ? [...items, ''] : [''])
+  }, [syncKey])
+
+  function commit(next: string[], focusAt?: number) {
+    const padded = next.length === 0 || next[next.length - 1] !== '' ? [...next, ''] : next
+    setRows(padded)
+    onChange(joinListItems(padded))
+    if (focusAt !== undefined) {
+      window.requestAnimationFrame(() => inputs.current[focusAt]?.focus())
+    }
+  }
+
+  function onKey(event: KeyboardEvent<HTMLInputElement>, index: number) {
+    if (event.nativeEvent.isComposing) return
+    if (event.key === 'Enter') {
+      if (!event.metaKey && !event.ctrlKey) return
+      event.preventDefault()
+      const next = [...rows]
+      if (!next[index].trim() && index === next.length - 1) return
+      next.splice(index + 1, 0, '')
+      commit(next, index + 1)
+      return
+    }
+    if (event.key === 'Backspace' && rows[index] === '' && rows.length > 1) {
+      event.preventDefault()
+      const next = rows.filter((_, i) => i !== index)
+      commit(next, Math.max(0, index - 1))
+    }
+  }
+
+  return (
+    <ul className="list-editor">
+      {rows.map((row, index) => (
+        <li key={index}>
+          <span aria-hidden>・</span>
+          <input
+            ref={(el) => {
+              inputs.current[index] = el
+            }}
+            value={row}
+            placeholder={index === 0 ? placeholder : '⌘+Enter で次の行'}
+            aria-label={`${label} ${index + 1}件目`}
+            onChange={(event) => {
+              const next = [...rows]
+              next[index] = event.target.value
+              commit(next)
+            }}
+            onKeyDown={(event) => onKey(event, index)}
+          />
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 export function Field({
   label,

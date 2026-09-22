@@ -15,8 +15,8 @@ const FEATURES = [
   {
     id: 'organize',
     kicker: 'TODO',
-    title: '曜日にやることを置く',
-    body: '案件とカードを、進捗中・未完了・完了へ置く。',
+    title: '仕事を足して、曜日で捌く',
+    body: '今日やることを置いて、チェックで片付ける。',
     figure: 'organize',
   },
   {
@@ -32,6 +32,13 @@ const FEATURES = [
     title: '書いたものを見返す',
     body: '見返して、コピーやドキュメントに残す。',
     figure: 'history',
+  },
+  {
+    id: 'work',
+    kicker: 'Work',
+    title: '進みを、案件ごとに見る',
+    body: '案件を開いて作業を足す。未完了・進捗中・完了で揃える。',
+    figure: 'work',
   },
 ] as const
 
@@ -70,6 +77,7 @@ const WELLS = [
   { id: 'review', label: 'まとめ' },
   { id: 'history', label: '履歴' },
   { id: 'organize', label: 'TODO' },
+  { id: 'work', label: 'Work' },
 ] as const
 
 export function LandingPage({
@@ -98,9 +106,11 @@ export function LandingPage({
             </Button>
           ) : (
             <>
-              <Button variant="quiet" onClick={onStart}>
-                この端末だけで始める
-              </Button>
+              <span className="lp-bar-guest">
+                <Button variant="quiet" onClick={onStart}>
+                  この端末だけで始める
+                </Button>
+              </span>
               <Button variant="primary" onClick={onAccount}>
                 {canSso ? 'Googleで入る' : '登録・ログイン'}
               </Button>
@@ -167,7 +177,7 @@ export function LandingPage({
         <section className="lp-block">
           <header className="lp-block-head">
             <p className="kicker">できること</p>
-            <h2>四つの画面で続ける</h2>
+            <h2>五つの画面で続ける</h2>
           </header>
           <ul className="lp-cards lp-cards-4">
             {FEATURES.map((item) => (
@@ -307,6 +317,17 @@ function ScreenFigure({ kind }: { kind: (typeof FEATURES)[number]['figure'] }) {
           <rect x="32" y="46" width="52" height="6" rx="3" fill="#796eff" opacity="0.35" />
           <rect x="116" y="32" width="40" height="6" rx="3" fill="#796eff" />
           <rect x="116" y="46" width="36" height="6" rx="3" fill="#796eff" opacity="0.35" />
+        </>
+      ) : null}
+      {kind === 'work' ? (
+        <>
+          <rect x="8" y="8" width="88" height="76" rx="12" fill="#e8f6f8" />
+          <rect x="104" y="8" width="88" height="76" rx="12" fill="#d5eef2" />
+          <rect x="20" y="22" width="48" height="8" rx="4" fill="#2b9eb3" />
+          <rect x="20" y="38" width="64" height="6" rx="3" fill="#2b9eb3" opacity="0.35" />
+          <rect x="20" y="50" width="40" height="6" rx="3" fill="#2b9eb3" opacity="0.22" />
+          <rect x="116" y="22" width="48" height="8" rx="4" fill="#2b9eb3" />
+          <rect x="116" y="38" width="52" height="6" rx="3" fill="#2b9eb3" opacity="0.35" />
         </>
       ) : null}
       {kind === 'history' ? (

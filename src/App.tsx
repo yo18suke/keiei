@@ -3,6 +3,7 @@ import { AccountPage } from './AccountPage'
 import { HistoryPage } from './HistoryPage'
 import { LandingPage } from './LandingPage'
 import { Opening } from './Opening'
+import { CasesPage } from './CasesPage'
 import { OrganizePage } from './OrganizePage'
 import { ReviewPage } from './ReviewPage'
 import { AuthProvider, useAuth } from './auth'
@@ -12,8 +13,7 @@ import { asset } from './assets'
 import { dateParts, todayISO } from './dates'
 import { Button } from './ui'
 
-const PAGES = ['today', 'review', 'history', 'organize'] as const
-type AppPage = (typeof PAGES)[number]
+type AppPage = 'today' | 'review' | 'history' | 'organize' | 'work'
 type Page = AppPage | 'landing' | 'account'
 
 const LABELS: Record<AppPage, string> = {
@@ -21,7 +21,13 @@ const LABELS: Record<AppPage, string> = {
   review: 'まとめ',
   history: '履歴',
   organize: 'TODO',
+  work: 'Work',
 }
+
+const MAIN_PAGES = ['organize', 'work'] as const
+const REFLECT_PAGES = ['today', 'review', 'history'] as const
+const MOBILE_PAGES = ['today', 'review', 'history', 'organize', 'work'] as const
+
 
 const SYNC_LABEL = {
   local: 'この端末',
@@ -34,7 +40,8 @@ function parseHash(): { page: Page; date: string } {
   const h = window.location.hash.replace(/^#\/?/, '')
   const todayMatch = h.match(/^today\/(\d{4}-\d{2}-\d{2})$/)
   if (todayMatch) return { page: 'today', date: todayMatch[1] }
-  if (h === 'today' || h === 'history' || h === 'review' || h === 'organize') {
+  if (h === 'cases' || h === 'projects') return { page: 'work', date: todayISO() }
+  if (h === 'today' || h === 'history' || h === 'review' || h === 'organize' || h === 'work') {
     return { page: h, date: todayISO() }
   }
   if (h === 'login' || h === 'register' || h === 'account') {
@@ -48,6 +55,12 @@ function AppShell() {
   const today = dateParts(todayISO())
   const { user, signOut, driveReady, connectDrive, error } = useAuth()
   const { syncStatus, flushCloud } = useStore()
+  const reflecting = page === 'today' || page === 'review' || page === 'history'
+  const [reflectOpen, setReflectOpen] = useState(reflecting)
+
+  useEffect(() => {
+    setReflectOpen(reflecting)
+  }, [reflecting])
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash())
@@ -92,14 +105,62 @@ function AppShell() {
       <div className="app">
         <aside className="rail">
           <div className="brand">
-            <img className="logo" src={asset('logo.svg')} width="32" height="32" alt="" />
-            <div>
+            <button type="button" className="logo-btn" onClick={goAccount} aria-label="アカウント">
+              <img className="logo" src={asset('logo.svg')} width="32" height="32" alt="" />
+            </button>
+            <div className="brand-copy">
               <p className="wordmark">リフレクションパレット</p>
               <p className="tag">日々の振り返り</p>
             </div>
           </div>
-          <nav className="nav" aria-label="主要">
-            {PAGES.map((p) => (
+          <nav className="nav nav-desktop" aria-label="主要">
+            {MAIN_PAGES.map((p) => (
+              <a
+                key={p}
+                href={`#${p}`}
+                className={page === p ? 'nav-link on' : 'nav-link'}
+                onClick={(e) => {
+                  e.preventDefault()
+                  go(p)
+                }}
+              >
+                <i className={`nav-dot ${p}`} aria-hidden />
+                {LABELS[p]}
+              </a>
+            ))}
+            <div className="nav-group">
+              <button
+                type="button"
+                className={`nav-link nav-parent${reflectOpen ? ' open' : ''}${reflecting ? ' current' : ''}`}
+                aria-expanded={reflectOpen}
+                aria-controls="nav-reflect"
+                onClick={() => setReflectOpen((next) => !next)}
+              >
+                <i className="nav-dot reflect" aria-hidden />
+                リフレクション
+              </button>
+              {reflectOpen ? (
+                <div id="nav-reflect" className="nav-sub">
+                  {REFLECT_PAGES.map((p) => (
+                    <a
+                      key={p}
+                      href={`#${p}`}
+                      className={page === p ? 'nav-link on' : 'nav-link'}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        go(p, p === 'today' ? todayISO() : date)
+                      }}
+                    >
+                      <i className={`nav-dot ${p}`} aria-hidden />
+                      {LABELS[p]}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </nav>
+          <nav className="nav nav-mobile" aria-label="主要">
+            {MOBILE_PAGES.map((p) => (
               <a
                 key={p}
                 href={`#${p}`}
@@ -157,6 +218,7 @@ function AppShell() {
             {page === 'review' ? <ReviewPage onOpenDay={(d) => go('today', d)} /> : null}
             {page === 'history' ? <HistoryPage onOpenDay={(d) => go('today', d)} /> : null}
             {page === 'organize' ? <OrganizePage /> : null}
+            {page === 'work' ? <CasesPage /> : null}
           </main>
         </div>
       </div>

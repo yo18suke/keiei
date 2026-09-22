@@ -14,7 +14,7 @@ import {
   weekStart,
   yearOf,
 } from './dates'
-import { docFilename, formatMonthDoc, formatWeekDoc } from './exportDoc'
+import { buildMonthDoc, buildWeekDoc, docFilename } from './exportDoc'
 import { ExportActions } from './ExportActions'
 import { SpeakableField } from './MicButton'
 import { daysOn, digestOf, type DigestLine, type PeriodDigest } from './selectors'
@@ -72,7 +72,7 @@ export function ReviewPage({ onOpenDay }: { onOpenDay: (date: string) => void })
           onAppend={(text) => appendWeekNote(week, text)}
           onChange={(v) => patchWeekNote(week, v)}
         />
-        <ExportActions text={formatWeekDoc(state, week)} filename={docFilename(`週-${week}`)} />
+        <ExportActions parts={buildWeekDoc(state, week)} filename={docFilename(`週-${week}`)} />
       </Section>
 
       <Section kicker="今月" title={formatMonth(month.year, month.month)} variant="panel" tone="gold">
@@ -101,7 +101,7 @@ export function ReviewPage({ onOpenDay }: { onOpenDay: (date: string) => void })
           onChange={(v) => patchMonthNote(monthKey(month.year, month.month), v)}
         />
         <ExportActions
-          text={formatMonthDoc(state, month.year, month.month)}
+          parts={buildMonthDoc(state, month.year, month.month)}
           filename={docFilename(`月-${monthKey(month.year, month.month)}`)}
         />
       </Section>

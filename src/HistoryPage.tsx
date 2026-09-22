@@ -18,8 +18,9 @@ import {
   weekStart,
   yearOf,
 } from './dates'
-import { docFilename, formatAllDoc, formatDayDoc, formatMonthDoc, formatWeekDoc } from './exportDoc'
+import { buildAllDoc, buildDayDoc, buildMonthDoc, buildWeekDoc, docFilename } from './exportDoc'
 import { ExportActions } from './ExportActions'
+import { parseListItems } from './lists'
 import { dayAt, dayHasEntry } from './selectors'
 import { useStore } from './store'
 import { Button } from './ui'
@@ -71,14 +72,14 @@ export function HistoryPage({ onOpenDay }: { onOpenDay: (date: string) => void }
   const selectedDay = dayAt(state, selected)
   const selectedHasEntry = dayHasEntry(selectedDay)
 
-  const exportText =
+  const exportParts =
     span === 'day'
-      ? formatDayDoc(selectedDay)
+      ? buildDayDoc(selectedDay)
       : span === 'week'
-        ? formatWeekDoc(state, week)
+        ? buildWeekDoc(state, week)
         : span === 'month'
-          ? formatMonthDoc(state, month.year, month.month)
-          : formatAllDoc(state)
+          ? buildMonthDoc(state, month.year, month.month)
+          : buildAllDoc(state)
   const exportName =
     span === 'day'
       ? docFilename(`日-${selected}`)
@@ -263,7 +264,7 @@ export function HistoryPage({ onOpenDay }: { onOpenDay: (date: string) => void }
           </div>
         ) : null}
 
-        <ExportActions text={exportText} filename={exportName} />
+        <ExportActions parts={exportParts} filename={exportName} />
 
         {span === 'all' ? (
           <div className="row-actions">
@@ -345,13 +346,8 @@ export function HistoryPage({ onOpenDay }: { onOpenDay: (date: string) => void }
 }
 
 function asItems(text: string) {
-  const trimmed = text.trim()
-  if (!trimmed) return []
-  const parts = trimmed
-    .split(/\n+|・/)
-    .map((part) => part.replace(/^[\s・•●\-]+/, '').trim())
-    .filter(Boolean)
-  return parts.length > 1 ? parts : [trimmed]
+  const items = parseListItems(text)
+  return items.length > 0 ? items : []
 }
 
 function HistoryBlock({

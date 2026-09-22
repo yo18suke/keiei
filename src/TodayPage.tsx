@@ -1,5 +1,5 @@
 import { addDays, dateParts, todayISO, weekDates, weekStart, weekdayJa } from './dates'
-import { docFilename, formatDayDoc } from './exportDoc'
+import { buildDayDoc, docFilename } from './exportDoc'
 import { ExportActions } from './ExportActions'
 import { MicToggle, SpeakableField } from './MicButton'
 import { dayAt, dayHasEntry } from './selectors'
@@ -104,6 +104,9 @@ export function TodayPage({
       <Section kicker="②" title="整理する" tone="indigo">
         <p className="section-lead muted">事実、学び、次に頭に置くことを、別の箱に分ける。</p>
         <SpeakableField
+          listable
+          modeId="y"
+          resetKey={date}
           label="やったこと"
           hint="事実だけ。短くていい。"
           tone="green"
@@ -115,6 +118,9 @@ export function TodayPage({
           onChange={(v) => patchDay(date, { y: v, skipped: false })}
         />
         <SpeakableField
+          listable
+          modeId="w"
+          resetKey={date}
           label="学んだこと"
           hint="うまくいった理由も、外れた理由も。"
           tone="indigo"
@@ -126,6 +132,9 @@ export function TodayPage({
           onChange={(v) => patchDay(date, { w: v, skipped: false })}
         />
         <SpeakableField
+          listable
+          modeId="t"
+          resetKey={date}
           label="明日以降意識すること"
           hint="明日から頭に置いておくこと。"
           tone="gold"
@@ -148,8 +157,8 @@ export function TodayPage({
       </Section>
 
       <div className="export-row">
-        <p className="muted">コピーして Google ドキュメントに貼れます。ダウンロードしたファイルも、ドキュメントで開けます。</p>
-        <ExportActions text={formatDayDoc(day)} filename={docFilename(date)} />
+        <p className="muted">Googleドキュメントへ送ると、ドライブの「リフレクションパレット」フォルダに溜まります。</p>
+        <ExportActions parts={buildDayDoc(day)} filename={docFilename(date)} />
       </div>
     </div>
   )

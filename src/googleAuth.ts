@@ -1,12 +1,25 @@
 const CLIENT_KEY = 'keiei.googleClientId'
 const SESSION_KEY = 'keiei.session'
-const SCOPES = [
+export const DRIVE_SCOPES = [
   'openid',
   'email',
   'https://www.googleapis.com/auth/drive.appdata',
   'https://www.googleapis.com/auth/documents',
   'https://www.googleapis.com/auth/drive.file',
 ].join(' ')
+export const CALENDAR_SCOPES = 'openid email https://www.googleapis.com/auth/tasks'
+const TASKS_ACCOUNT_KEY = 'keiei.tasksAccount'
+
+function mergeScopes(...groups: string[]) {
+  return [...new Set(groups.join(' ').split(/\s+/).filter(Boolean))].join(' ')
+}
+
+function coversScopes(have: string, need: string) {
+  const granted = new Set(have.split(/\s+/).filter(Boolean))
+  return need.split(/\s+/).filter(Boolean).every((scope) => granted.has(scope))
+}
+
+let grantedScopes = DRIVE_SCOPES
 
 type TokenClient = {
   requestAccessToken: (override?: { prompt?: string; hint?: string }) => void
@@ -84,6 +97,9 @@ declare global {
 
 let accessToken = ''
 let tokenExpiresAt = 0
+type TasksSlot = { token: string; expiresAt: number; user: AuthUser }
+let tasksSlots: Record<string, TasksSlot> = {}
+let lastTasksGrant: { token: string; expiresAt: number } | null = null
 let ssoReady = false
 let ssoClientId = ''
 let ssoPrompted = false
@@ -150,7 +166,84 @@ function saveSession(user: AuthUser) {
 export function clearSession() {
   accessToken = ''
   tokenExpiresAt = 0
+  grantedScopes = DRIVE_SCOPES
   localStorage.removeItem(SESSION_KEY)
+}
+
+const TASKS_ACCOUNTS_KEY = 'keiei.tasksAccounts'
+
+function tasksKey(email: string) {
+  return email.trim().toLowerCase()
+}
+
+export function loadTasksAccounts(): AuthUser[] {
+  const fromSlots = Object.values(tasksSlots).map((slot) => slot.user)
+  try {
+    const raw = localStorage.getItem(TASKS_ACCOUNTS_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown
+      if (Array.isArray(parsed)) {
+        const users = parsed.map((item) => asUser(item as Partial<AuthUser>)).filter((row): row is AuthUser => Boolean(row))
+        return mergeUsers(users, fromSlots)
+      }
+    }
+    const legacy = localStorage.getItem(TASKS_ACCOUNT_KEY)
+    if (legacy) {
+      const one = asUser(JSON.parse(legacy) as Partial<AuthUser>)
+      if (one) {
+        saveTasksAccounts([one])
+        localStorage.removeItem(TASKS_ACCOUNT_KEY)
+        return mergeUsers([one], fromSlots)
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return fromSlots
+}
+
+function mergeUsers(...groups: AuthUser[][]) {
+  const map = new Map<string, AuthUser>()
+  for (const group of groups) {
+    for (const user of group) map.set(tasksKey(user.email), user)
+  }
+  return [...map.values()]
+}
+
+function saveTasksAccounts(users: AuthUser[]) {
+  localStorage.setItem(TASKS_ACCOUNTS_KEY, JSON.stringify(users))
+}
+
+function upsertTasksAccount(user: AuthUser) {
+  saveTasksAccounts(mergeUsers(loadTasksAccounts(), [user]))
+}
+
+export function clearTasksSession(email?: string) {
+  if (!email) {
+    const tokens = Object.values(tasksSlots).map((slot) => slot.token)
+    tasksSlots = {}
+    lastTasksGrant = null
+    localStorage.removeItem(TASKS_ACCOUNTS_KEY)
+    localStorage.removeItem(TASKS_ACCOUNT_KEY)
+    return tokens
+  }
+  const key = tasksKey(email)
+  const token = tasksSlots[key]?.token
+  delete tasksSlots[key]
+  saveTasksAccounts(loadTasksAccounts().filter((user) => tasksKey(user.email) !== key))
+  return token ? [token] : []
+}
+
+export function hasTasksSession(email?: string) {
+  if (email) {
+    const slot = tasksSlots[tasksKey(email)]
+    return Boolean(slot && Date.now() < slot.expiresAt - 15_000)
+  }
+  return Object.values(tasksSlots).some((slot) => Date.now() < slot.expiresAt - 15_000)
+}
+
+export function loadTasksAccount(): AuthUser | null {
+  return loadTasksAccounts()[0] ?? null
 }
 
 export function hasGoogleSession() {
@@ -320,12 +413,19 @@ function tokenPopupMessage() {
   return 'ログイン窓を開けませんでした。ブラウザのポップアップ許可を確認してください。'
 }
 
-function requestToken(clientId: string, interactive: boolean) {
+function requestToken(
+  clientId: string,
+  interactive: boolean,
+  scope: string,
+  options: { hint?: string; prompt?: string; bucket?: 'drive' | 'tasks' } = {},
+) {
   return new Promise<string>((resolve, reject) => {
     if (!window.google?.accounts.oauth2) {
       reject(new Error('Google のログインを読み込めませんでした'))
       return
     }
+    const hint = options.hint
+    const bucket = options.bucket ?? 'drive'
     let settled = false
     const finish = (error?: Error, token?: string) => {
       if (settled) return
@@ -343,10 +443,9 @@ function requestToken(clientId: string, interactive: boolean) {
         ),
       )
     }, interactive ? 20000 : 8000)
-    const hint = loadSession()?.email
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: clientId,
-      scope: SCOPES,
+      scope,
       hint,
       callback: (response) => {
         if (response.error || !response.access_token) {
@@ -361,10 +460,14 @@ function requestToken(clientId: string, interactive: boolean) {
           )
           return
         }
-        accessToken = response.access_token
         const life = (response.expires_in ?? 3600) * 1000
-        tokenExpiresAt = Date.now() + life
-        finish(undefined, accessToken)
+        if (bucket === 'tasks') {
+          lastTasksGrant = { token: response.access_token, expiresAt: Date.now() + life }
+        } else {
+          accessToken = response.access_token
+          tokenExpiresAt = Date.now() + life
+        }
+        finish(undefined, response.access_token)
       },
       error_callback: (error) => {
         if (!interactive) {
@@ -378,7 +481,8 @@ function requestToken(clientId: string, interactive: boolean) {
         finish(new Error(tokenPopupMessage()))
       },
     })
-    client.requestAccessToken(interactive ? { hint } : { prompt: '', hint })
+    const prompt = interactive ? options.prompt : ''
+    client.requestAccessToken(prompt !== undefined ? { hint, prompt } : { hint })
   })
 }
 
@@ -392,16 +496,82 @@ async function fetchProfile(token: string): Promise<AuthUser> {
   return { email: body.email, name: body.name ?? '', sub: body.sub }
 }
 
-export async function getAccessToken(interactive = true) {
+export async function getAccessToken(interactive = true, scope = grantedScopes) {
   const clientId = googleClientId()
   if (!clientId) throw new Error('NO_CLIENT_ID')
-  if (hasGoogleSession()) return accessToken
+  const needed = mergeScopes(grantedScopes, scope)
+  if (hasGoogleSession() && coversScopes(grantedScopes, needed)) return accessToken
   await waitForGis()
+  const hint = loadSession()?.email
   try {
-    return await requestToken(clientId, false)
+    const token = await requestToken(clientId, false, needed, { hint, bucket: 'drive' })
+    grantedScopes = needed
+    return token
   } catch (error) {
     if (!interactive) throw error
-    return requestToken(clientId, true)
+    const token = await requestToken(clientId, true, needed, { hint, bucket: 'drive' })
+    grantedScopes = needed
+    return token
+  }
+}
+
+function rememberTasksToken(user: AuthUser, token: string, expiresAt?: number) {
+  const key = tasksKey(user.email)
+  tasksSlots[key] = {
+    token,
+    expiresAt: expiresAt ?? lastTasksGrant?.expiresAt ?? Date.now() + 3600_000,
+    user,
+  }
+  upsertTasksAccount(user)
+}
+
+export async function getTasksAccessToken(email: string, interactive = true) {
+  const clientId = googleClientId()
+  if (!clientId) throw new Error('NO_CLIENT_ID')
+  const key = tasksKey(email)
+  const slot = tasksSlots[key]
+  if (slot && Date.now() < slot.expiresAt - 15_000) return slot.token
+  await waitForGis()
+  try {
+    const token = await requestToken(clientId, false, CALENDAR_SCOPES, { hint: email, bucket: 'tasks' })
+    const user = slot?.user ?? (await fetchProfile(token))
+    rememberTasksToken(user.email === email ? user : { ...user, email }, token, lastTasksGrant?.expiresAt)
+    return token
+  } catch (error) {
+    if (!interactive) throw error
+    const token = await requestToken(clientId, true, CALENDAR_SCOPES, {
+      hint: email,
+      prompt: 'select_account',
+      bucket: 'tasks',
+    })
+    const user = await fetchProfile(token)
+    rememberTasksToken(user, token, lastTasksGrant?.expiresAt)
+    if (tasksKey(user.email) !== key) throw new Error('選んだアカウントが違います')
+    return token
+  }
+}
+
+export async function connectTasksAccess() {
+  const clientId = googleClientId()
+  if (!clientId) throw new Error('NO_CLIENT_ID')
+  await waitForGis()
+  const token = await requestToken(clientId, true, CALENDAR_SCOPES, {
+    prompt: 'select_account',
+    bucket: 'tasks',
+  })
+  const user = await fetchProfile(token)
+  rememberTasksToken(user, token, lastTasksGrant?.expiresAt)
+  return user
+}
+
+export async function disconnectTasks(email?: string) {
+  const tokens = clearTasksSession(email)
+  for (const token of tokens) {
+    if (!window.google?.accounts.oauth2.revoke) continue
+    await new Promise<void>((resolve) => {
+      window.google?.accounts.oauth2.revoke?.(token, () => resolve())
+      window.setTimeout(resolve, 1200)
+    })
   }
 }
 
@@ -425,12 +595,21 @@ export async function signIn(interactive = true): Promise<AuthUser> {
 
 export async function signOut() {
   const token = accessToken
+  const extras = Object.values(tasksSlots).map((slot) => slot.token)
   disableGoogleAutoSelect()
   cancelGoogleSso()
   clearSession()
+  clearTasksSession()
   if (token && window.google?.accounts.oauth2.revoke) {
     await new Promise<void>((resolve) => {
       window.google?.accounts.oauth2.revoke?.(token, () => resolve())
+      window.setTimeout(resolve, 1200)
+    })
+  }
+  for (const extra of extras) {
+    if (!extra || extra === token || !window.google?.accounts.oauth2.revoke) continue
+    await new Promise<void>((resolve) => {
+      window.google?.accounts.oauth2.revoke?.(extra, () => resolve())
       window.setTimeout(resolve, 1200)
     })
   }
@@ -451,6 +630,27 @@ export async function googleFetch(
     accessToken = ''
     tokenExpiresAt = 0
     return googleFetch(url, init, { retry: false, interactive })
+  }
+  return res
+}
+
+export async function tasksFetch(
+  url: string,
+  init: RequestInit = {},
+  options: { retry?: boolean; interactive?: boolean; email?: string } = {},
+) {
+  const email = options.email
+  if (!email) throw new Error('タスク用アカウントがありません')
+  const retry = options.retry !== false
+  const interactive = options.interactive !== false
+  const token = await getTasksAccessToken(email, interactive)
+  const headers = new Headers(init.headers)
+  headers.set('Authorization', `Bearer ${token}`)
+  const res = await fetch(url, { ...init, headers })
+  if (res.status === 401 && retry) {
+    const key = tasksKey(email)
+    if (tasksSlots[key]) tasksSlots[key].expiresAt = 0
+    return tasksFetch(url, init, { ...options, retry: false })
   }
   return res
 }

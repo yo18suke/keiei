@@ -1,5 +1,18 @@
-import { asTaskLane, emptyState, type DayRecord, type State, type WorkCase, type WorkTask, asCaseColor } from './types'
+import {
+  asTaskLane,
+  calendarLinksOf,
+  emptyState,
+  googleTasksOf,
+  type CalendarLink,
+  type DayRecord,
+  type GoogleTaskRef,
+  type State,
+  type WorkCase,
+  type WorkTask,
+  asCaseColor,
+} from './types'
 import { asDateList } from './todos'
+import { asTaskRepeat } from './repeat'
 
 function pickText(a: string, b: string) {
   if (!a.trim()) return b
@@ -61,17 +74,46 @@ function mergeTasks(a: WorkTask[], b: WorkTask[]) {
       map.set(task.id, {
         ...task,
         plannedDates: asDateList(task.plannedDates, task.scheduledOn),
+        doneDates: asDateList(task.doneDates),
+        repeat: asTaskRepeat(task.repeat),
+        googleTasks: googleTasksOf(task),
+        googleTaskId: googleTasksOf(task)[0]?.taskId,
+        googleTaskListId: googleTasksOf(task)[0]?.listId,
       })
       continue
     }
     const richer = LANE_RANK[task.lane] >= LANE_RANK[prev.lane] ? task : prev
+    const googleTasks = mergeGoogleTasks(googleTasksOf(prev), googleTasksOf(task))
     map.set(task.id, {
       ...richer,
       title: pickText(prev.title, task.title),
       doneAt: richer.lane === 'done' ? richer.doneAt || prev.doneAt || task.doneAt : undefined,
       scheduledOn: richer.scheduledOn || prev.scheduledOn,
       plannedDates: asDateList([...(prev.plannedDates ?? []), ...(task.plannedDates ?? [])], richer.scheduledOn || prev.scheduledOn),
+      doneDates: asDateList([...(prev.doneDates ?? []), ...(task.doneDates ?? [])]),
+      repeat: asTaskRepeat(task.repeat) || asTaskRepeat(prev.repeat),
+      googleTasks,
+      googleTaskId: googleTasks[0]?.taskId,
+      googleTaskListId: googleTasks[0]?.listId,
     })
+  }
+  return [...map.values()]
+}
+
+function mergeGoogleTasks(a: GoogleTaskRef[], b: GoogleTaskRef[]) {
+  const map = new Map<string, GoogleTaskRef>()
+  for (const item of [...a, ...b]) {
+    if (!item.listId || !item.taskId) continue
+    map.set(`${item.accountEmail.toLowerCase()}::${item.listId}`, item)
+  }
+  return [...map.values()]
+}
+
+function mergeCalendarLinks(a: CalendarLink[], b: CalendarLink[]) {
+  const map = new Map<string, CalendarLink>()
+  for (const item of [...a, ...b]) {
+    if (!item.accountEmail || !item.listId) continue
+    map.set(item.accountEmail.toLowerCase(), item)
   }
   return [...map.values()]
 }
@@ -81,12 +123,15 @@ export function mergeStates(a: State, b: State): State {
   for (const [date, day] of Object.entries(b.days)) {
     days[date] = days[date] ? mergeDay(days[date], day) : day
   }
+  const calendarLinks = mergeCalendarLinks(calendarLinksOf(a), calendarLinksOf(b))
   return {
     days,
     weekNotes: mergeNotes(a.weekNotes, b.weekNotes),
     monthNotes: mergeNotes(a.monthNotes, b.monthNotes),
     cases: mergeCases(a.cases, b.cases),
     tasks: mergeTasks(a.tasks, b.tasks),
+    calendarLinks,
+    calendarLink: calendarLinks[0],
   }
 }
 

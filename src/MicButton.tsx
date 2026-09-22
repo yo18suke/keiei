@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from 'react'
+import { loadWriteMode, saveWriteMode, joinListItems, parseListItems, type WriteMode } from './lists'
 import { useDictation } from './speech'
-import { Field } from './ui'
+import { Field, ListEditor } from './ui'
 
 function MicIcon() {
   return (
@@ -27,6 +29,9 @@ export function MicButton({
 
 export function SpeakableField({
   onAppend,
+  listable,
+  modeId,
+  resetKey,
   ...field
 }: {
   label: string
@@ -38,13 +43,91 @@ export function SpeakableField({
   rows?: number
   tone?: 'coral' | 'indigo' | 'green' | 'gold'
   onAppend: (text: string) => void
+  listable?: boolean
+  modeId?: string
+  resetKey?: string
 }) {
-  const dictation = useDictation(onAppend)
+  const [mode, setMode] = useState<WriteMode>(() =>
+    listable && modeId ? loadWriteMode(modeId, field.value) : 'prose',
+  )
+  const modeRef = useRef(mode)
+  const valueRef = useRef(field.value)
+  modeRef.current = mode
+  valueRef.current = field.value
+
+  useEffect(() => {
+    if (!listable || !modeId) return
+    setMode(loadWriteMode(modeId, field.value))
+  }, [listable, modeId, resetKey])
+
+  const dictation = useDictation((text) => {
+    if (listable && modeRef.current === 'list') {
+      field.onChange(joinListItems([...parseListItems(valueRef.current), text]))
+      return
+    }
+    onAppend(text)
+  })
+
+  function choose(next: WriteMode) {
+    setMode(next)
+    if (modeId) saveWriteMode(modeId, next)
+  }
+
+  const live = dictation.listening ? dictation.interim || '聞いています…' : dictation.error
+  const action = (
+    <div className="field-head-actions">
+      {listable ? (
+        <div className="write-mode" role="group" aria-label="記入の形">
+          <button
+            type="button"
+            className={mode === 'prose' ? 'write-mode-btn on' : 'write-mode-btn'}
+            aria-pressed={mode === 'prose'}
+            onClick={() => choose('prose')}
+          >
+            文章
+          </button>
+          <button
+            type="button"
+            className={mode === 'list' ? 'write-mode-btn on' : 'write-mode-btn'}
+            aria-pressed={mode === 'list'}
+            onClick={() => choose('list')}
+          >
+            箇条書き
+          </button>
+        </div>
+      ) : null}
+      <MicToggle dictation={dictation} compact hideStatus />
+    </div>
+  )
+
+  if (listable && mode === 'list') {
+    const cls = ['field', 'field-card', field.tone ? `tone-${field.tone}` : '']
+      .filter(Boolean)
+      .join(' ')
+    return (
+      <div className={cls}>
+        <div className="field-head">
+          <span className="field-label">{field.label}</span>
+          {action}
+        </div>
+        <ListEditor
+          value={field.value}
+          onChange={field.onChange}
+          label={field.label}
+          placeholder={field.placeholder}
+          syncKey={resetKey}
+        />
+        {live ? <p className="speech-live">{live}</p> : null}
+        {field.hint ? <span className="field-hint">{field.hint}</span> : null}
+      </div>
+    )
+  }
+
   return (
     <Field
       {...field}
-      live={dictation.listening ? dictation.interim || '聞いています…' : dictation.error}
-      action={<MicToggle dictation={dictation} compact hideStatus />}
+      live={live}
+      action={action}
     />
   )
 }

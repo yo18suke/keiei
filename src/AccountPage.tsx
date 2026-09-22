@@ -3,6 +3,7 @@ import { asset } from './assets'
 import { useAuth } from './auth'
 import { GoogleSignInButton } from './GoogleSignInButton'
 import { googleClientId, googleLoginNeedsNewTab, isLikelyClientId, saveGoogleClientId } from './googleAuth'
+import { CalendarLink } from './CalendarLink'
 import { useStore } from './store'
 import { Button } from './ui'
 
@@ -81,6 +82,7 @@ export function AccountPage({
                 ログアウト
               </Button>
             </div>
+            <CalendarLink />
           </div>
         ) : (
           <div className="account-card">

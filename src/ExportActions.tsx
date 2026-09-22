@@ -1,15 +1,16 @@
 import { useState } from 'react'
-import { copyText, downloadText } from './exportDoc'
+import { copyText, downloadText, renderDocText, type DocSpan } from './exportDoc'
 import { googleClientId, isLikelyClientId, saveGoogleClientId, sendToGoogleDoc } from './googleDocs'
 import { Button } from './ui'
 
 export function ExportActions({
-  text,
+  parts,
   filename,
 }: {
-  text: string
+  parts: DocSpan[]
   filename: string
 }) {
+  const text = renderDocText(parts)
   const [copied, setCopied] = useState(false)
   const [google, setGoogle] = useState<'idle' | 'sending' | 'opened'>('idle')
   const [clientId, setClientId] = useState(googleClientId)
@@ -26,7 +27,7 @@ export function ExportActions({
     setGoogle('sending')
     try {
       const title = filename.replace(/\.txt$/, '')
-      const url = await sendToGoogleDoc(title, text)
+      const url = await sendToGoogleDoc(title, parts)
       window.open(url, '_blank', 'noopener')
       setGoogle('opened')
       window.setTimeout(() => setGoogle('idle'), 1800)

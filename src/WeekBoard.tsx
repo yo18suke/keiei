@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { addDays, dateParts, todayISO, weekDates, weekStart } from './dates'
 import { useStore } from './store'
-import { asTaskLane } from './types'
-import { dayTodoStats, openOn, tasksPlacedOn } from './todos'
+import { isDoneOn, repeatLabel } from './repeat'
+import { dayTodoStats, openOn, tasksPlacedOn, weekTodoStats } from './todos'
+import { asCaseColor } from './types'
 import { Button } from './ui'
 
 type BoardView = 'week' | 'day'
@@ -48,16 +49,15 @@ function Ring({ percent }: { percent: number }) {
 
 export function WeekBoard() {
   const today = todayISO()
-  const { state, addTask, toggleTaskDone, carryTasks, renameTask } = useStore()
+  const { state, toggleTaskDone, carryTasks, renameTask } = useStore()
   const [week, setWeek] = useState(() => weekStart(today))
   const [view, setView] = useState<BoardView>(loadView)
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const [caseId, setCaseId] = useState('')
-  const cases = (state.cases ?? []).filter((row) => !row.doneAt)
+  const cases = state.cases ?? []
   const tasks = state.tasks ?? []
   const thisWeek = weekStart(today)
   const dates = weekDates(week)
-  const pickCase = caseId && cases.some((row) => row.id === caseId) ? caseId : cases[0]?.id ?? ''
+  const weekStats = weekTodoStats(tasks, dates)
+  const colorOf = (caseId: string) => asCaseColor(cases.find((row) => row.id === caseId)?.color)
   const boardRef = useRef<HTMLDivElement>(null)
   const colRefs = useRef<Record<string, HTMLElement | null>>({})
   const [focus, setFocus] = useState(() => (dates.includes(today) ? today : dates[0]))
@@ -165,8 +165,22 @@ export function WeekBoard() {
           </div>
         </div>
       </header>
-      {cases.length === 0 ? (
-        <p className="muted">先に下の案件を足すと、曜日にやることが置けます。</p>
+      {cases.filter((row) => !row.doneAt).length === 0 ? (
+        <p className="muted">先に案件を足すと、曜日にやることが置けます。</p>
+      ) : null}
+      {view === 'week' ? (
+        <div className="week-progress" aria-label={`今週の達成率 ${weekStats.percent}%`}>
+          <div className="week-progress-meter" aria-hidden>
+            <i style={{ width: `${weekStats.percent}%` }} />
+          </div>
+          <p>
+            <strong>{weekStats.percent}%</strong>
+            <span className="muted">
+              {' '}
+              {weekStats.total ? `${weekStats.done}/${weekStats.total}` : 'タスクなし'}
+            </span>
+          </p>
+        </div>
       ) : null}
       <div className="week-board-days" role="tablist" aria-label="曜日">
         {dates.map((date) => {
@@ -213,58 +227,41 @@ export function WeekBoard() {
               <div className="week-col-body">
                 <Ring percent={stats.percent} />
                 <p className="week-col-label">やること</p>
-                <ul className="week-todos">
-                  {placed.map((task) => {
-                    const done = asTaskLane(task.lane) === 'done'
-                    return (
-                      <li key={task.id} className={done ? 'week-todo done' : 'week-todo'}>
-                        <input
-                          type="checkbox"
-                          checked={done}
-                          aria-label={`${task.title}を完了`}
-                          onChange={() => toggleTaskDone(task.id, date)}
-                        />
-                        <input
-                          className="input-inline"
-                          defaultValue={task.title}
-                          key={task.title}
-                          aria-label="やること"
-                          onBlur={(event) => renameTask(task.id, event.target.value)}
-                        />
-                      </li>
-                    )
-                  })}
-                </ul>
-                <form
-                  className="week-add"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    if (!pickCase) return
-                    addTask(pickCase, drafts[date] ?? '', 'open', date)
-                    setDrafts((prev) => ({ ...prev, [date]: '' }))
-                  }}
-                >
-                  {cases.length > 1 ? (
-                    <select
-                      value={pickCase}
-                      aria-label="案件"
-                      onChange={(event) => setCaseId(event.target.value)}
-                    >
-                      {cases.map((row) => (
-                        <option key={row.id} value={row.id}>
-                          {row.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-                  <input
-                    value={drafts[date] ?? ''}
-                    placeholder="追加"
-                    aria-label={`${parts.weekday}のやることを足す`}
-                    disabled={!pickCase}
-                    onChange={(event) => setDrafts((prev) => ({ ...prev, [date]: event.target.value }))}
-                  />
-                </form>
+                {placed.length === 0 ? (
+                  <p className="muted week-todos-empty">この日のTODOはない。</p>
+                ) : (
+                  <ul className="week-todos">
+                    {placed.map((task) => {
+                      const done = isDoneOn(task, date)
+                      const color = colorOf(task.caseId)
+                      return (
+                        <li
+                          key={task.id}
+                          className={done ? 'week-todo done' : 'week-todo'}
+                          style={{ '--case': color } as CSSProperties}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={done}
+                            aria-label={`${task.title}を完了`}
+                            onChange={() => toggleTaskDone(task.id, date)}
+                          />
+                          <div className="week-todo-title">
+                            <input
+                              className="input-inline"
+                              defaultValue={task.title}
+                              key={task.title}
+                              aria-label="やること"
+                              onBlur={(event) => renameTask(task.id, event.target.value)}
+                            />
+                            {task.repeat ? <span className="week-todo-repeat">{repeatLabel(task.repeat, task.scheduledOn)}</span> : null}
+                            <i className="week-todo-line" aria-hidden />
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
                 {leftover.length > 0 ? (
                   <Button variant="quiet" onClick={() => carryTasks(date)}>
                     未完了を翌日へ
@@ -303,23 +300,29 @@ export function DayTodos({ date, onOrganize }: { date: string; onOrganize?: () =
         </button>
       ) : null}
       {placed.length === 0 ? (
-        <p className="muted">この日に置いたTODOはない。TODOの週ボードから曜日へ置けます。</p>
+        <p className="muted">この日のTODOはない。</p>
       ) : (
         <ul className="week-todos day-todos">
           {placed.map((task) => {
-            const done = asTaskLane(task.lane) === 'done'
-            const caseName = cases.find((row) => row.id === task.caseId)?.name
+            const done = isDoneOn(task, date)
+            const row = cases.find((item) => item.id === task.caseId)
             return (
-              <li key={task.id} className={done ? 'week-todo done' : 'week-todo'}>
+              <li
+                key={task.id}
+                className={done ? 'week-todo done' : 'week-todo'}
+                style={{ '--case': asCaseColor(row?.color) } as CSSProperties}
+              >
                 <input
                   type="checkbox"
                   checked={done}
                   aria-label={`${task.title}を完了`}
                   onChange={() => toggleTaskDone(task.id, date)}
                 />
-                <div>
-                  {caseName ? <p className="kicker">{caseName}</p> : null}
+                <div className="week-todo-title">
+                  {row?.name ? <p className="kicker">{row.name}</p> : null}
                   <p>{task.title}</p>
+                  {task.repeat ? <p className="week-todo-repeat">{repeatLabel(task.repeat, task.scheduledOn)}</p> : null}
+                  <i className="week-todo-line" aria-hidden />
                 </div>
               </li>
             )
